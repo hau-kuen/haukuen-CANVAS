@@ -331,7 +331,9 @@ function isImageModelName(model: string) {
         value.includes("wan/2-7-image") ||
         value.includes("topaz/image") ||
         value.includes("gemini-omni-character") ||
-        (value.includes("grok-imagine") && !value.includes("video"))
+        (value.includes("grok-imagine") && !value.includes("video")) ||
+        value.includes("higgsfield") ||
+        value.includes("soul")
     );
 }
 

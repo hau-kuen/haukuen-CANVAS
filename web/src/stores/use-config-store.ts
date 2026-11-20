@@ -178,6 +178,7 @@ export const defaultConfig: AiConfig = {
         { id: "deepseek", protocol: "openai", name: "DeepSeek", baseUrl: "https://api.deepseek.com", apiKey: "", models: ["deepseek-chat", "deepseek-reasoner"] },
         { id: "grsai", protocol: "openai", name: "grsai", baseUrl: "https://api.grsai.ai", apiKey: "", models: ["nano-banana-2", "nano-banana-2.1", "nano-banana-fast", "nano-banana-pro"] },
         { id: "runninghub", protocol: "runninghub", name: "RunningHub", baseUrl: "https://www.runninghub.cn", apiKey: "", models: [] },
+        { id: "higgsfield", protocol: "higgsfield", name: "Higgsfield", baseUrl: "https://api.higgsfield.ai", apiKey: "", models: ["higgsfield-ai/soul/standard", "higgsfield-ai/soul/v2/standard", "marketing-studio/image"] },
     ],
     publicChannels: [],
     syncStorageConfig: false,

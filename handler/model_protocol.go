@@ -347,6 +347,40 @@ var builtinAIProtocols = []aiProtocolAdapter{
 		},
 	},
 	{
+		id: service.ModelChannelProtocolHiggsfield,
+		path: func(channel model.ModelChannel, modelName string, path string) (string, bool) {
+			if !isHiggsfieldChannel(channel, modelName) {
+				return path, false
+			}
+			if path == "/images/generations" || path == "/images/edits" {
+				name := strings.TrimPrefix(strings.TrimSpace(modelName), "/")
+				if name != "" {
+					return "/" + name, true
+				}
+			}
+			return path, false
+		},
+		prepare: func(input aiProtocolRequest) (aiProtocolRequest, bool, error) {
+			if !isHiggsfieldChannel(input.channel, input.modelName) {
+				return input, false, nil
+			}
+			image := input.mode != aiProtocolVideoRequest && (input.endpoint == "/images/generations" || input.endpoint == "/images/edits")
+			if input.mode == aiProtocolDirectRequest {
+				image = input.endpoint != "/videos"
+			}
+			if !image {
+				return input, false, nil
+			}
+			input.failureLabel = "Higgsfield image"
+			var err error
+			input.body, input.contentType, err = normalizeHiggsfieldBody(input.body, input.contentType, input.modelName, input.channel)
+			return input, true, err
+		},
+		copyResponse: func(w http.ResponseWriter, response *http.Response, request *http.Request, channel model.ModelChannel, context aiLogContext, onFailure func()) bool {
+			return isHiggsfieldChannel(channel, context.Model) && copyHiggsfieldResponse(w, response, request, channel, context, onFailure)
+		},
+	},
+	{
 		id: service.ModelChannelProtocolGrok2API,
 		path: func(channel model.ModelChannel, modelName string, path string) (string, bool) {
 			if strings.EqualFold(strings.TrimSpace(channel.Protocol), service.ModelChannelProtocolGrok2API) && (strings.EqualFold(strings.TrimSpace(modelName), "grok-imagine-video") || strings.EqualFold(strings.TrimSpace(modelName), "grok-imagine-video-1.5")) && path == "/videos" {

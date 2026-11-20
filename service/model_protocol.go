@@ -16,6 +16,7 @@ const (
 	ModelChannelProtocolAutoDL   = "autodl"
 	ModelChannelProtocolArk      = "ark"
 	ModelChannelProtocolTokenDance = "tokendance"
+	ModelChannelProtocolHiggsfield = "higgsfield"
 )
 
 type modelProtocolAdapter struct {
@@ -31,7 +32,7 @@ type modelProtocolRule struct {
 }
 
 var modelProtocolRegistry map[string]modelProtocolAdapter
-var modelProtocolIDs = []string{ModelChannelProtocolOpenAI, ModelChannelProtocolGemini, ModelChannelProtocolGrok2API, ModelChannelProtocolMiniMax, ModelChannelProtocolAPIMart, ModelChannelProtocolKIE, ModelChannelProtocolMiMo, ModelChannelProtocolAutoDL, ModelChannelProtocolArk, ModelChannelProtocolTokenDance}
+var modelProtocolIDs = []string{ModelChannelProtocolOpenAI, ModelChannelProtocolGemini, ModelChannelProtocolGrok2API, ModelChannelProtocolMiniMax, ModelChannelProtocolAPIMart, ModelChannelProtocolKIE, ModelChannelProtocolMiMo, ModelChannelProtocolAutoDL, ModelChannelProtocolArk, ModelChannelProtocolTokenDance, ModelChannelProtocolHiggsfield}
 
 func init() {
 	compatible := modelProtocolAdapter{
@@ -116,6 +117,21 @@ func init() {
 	glm := compatible
 	glm.testModel = testGLMTTSChannelModel
 	modelProtocolRegistry["model:glm-tts"] = glm
+
+	higgsfield := compatible
+	higgsfield.buildURL = func(channel model.ModelChannel, path string) string {
+		return normalizeModelChannelBaseURL(channel.BaseURL) + path
+	}
+	higgsfield.setAuth = func(request *http.Request, channel model.ModelChannel) {
+		request.Header.Set("Authorization", "Key "+channel.APIKey)
+	}
+	higgsfield.models = func(model.ModelChannel) ([]string, error) {
+		return []string{"higgsfield-ai/soul/standard", "higgsfield-ai/soul/v2/standard", "marketing-studio/image"}, nil
+	}
+	higgsfield.testModel = func(_ model.ModelChannel, _ string) (string, error) {
+		return "Higgsfield 是异步生成模型，请在画布或生图工作台测试实际生成。", nil
+	}
+	modelProtocolRegistry[ModelChannelProtocolHiggsfield] = higgsfield
 }
 
 // 发现模型、配置测试与生成的命中规则不同，分别保留原有优先级。

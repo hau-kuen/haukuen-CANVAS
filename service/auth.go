@@ -413,6 +413,26 @@ func GuestUser() model.AuthUser {
 	return model.AuthUser{ID: "", Username: "guest", Role: model.UserRoleGuest}
 }
 
+// DefaultAutoLoginUser 去掉登录墙：未登录请求自动使用默认 admin 账号。
+func DefaultAutoLoginUser() model.AuthUser {
+	if user, ok, _ := repository.GetUserByUsername(config.Cfg.AdminUsername); ok {
+		return model.PublicUser(user)
+	}
+	return model.AuthUser{ID: "auto-login-admin", Username: config.Cfg.AdminUsername, DisplayName: "管理员", Role: model.UserRoleAdmin}
+}
+
+// AutoLogin 免密登录：去掉登录墙，未登录时自动用默认 admin 签发 token，前端无需携带密码。
+func AutoLogin() (model.AuthSession, error) {
+	user, ok, err := repository.GetUserByUsername(config.Cfg.AdminUsername)
+	if err != nil {
+		return model.AuthSession{}, err
+	}
+	if !ok {
+		return model.AuthSession{}, safeMessageError{message: "默认管理员账号不存在"}
+	}
+	return newSession(user)
+}
+
 func newSession(user model.User) (model.AuthSession, error) {
 	token, err := newToken(user)
 	if err != nil {

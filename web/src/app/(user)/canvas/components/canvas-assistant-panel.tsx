@@ -209,6 +209,20 @@ export function CanvasAssistantPanel({
             (reference) => selectedNodeIds.has(reference.nodeId) && ((!composerReferenceIds.includes(reference.nodeId) && !removedReferenceIds.has(reference.nodeId)) || reference.nodeId === pendingClickNodeId),
         );
     }, [composerReferenceIds, referenceNodeClick, removedReferenceIds, resourceReferences, selectedNodeIds]);
+    const selectedReferenceCount = useMemo(() => Array.from(selectedNodeIds).filter((id) => resourceReferenceById.has(id)).length, [resourceReferenceById, selectedNodeIds]);
+    const referenceSelectedNodes = useCallback(() => {
+        const ids = Array.from(selectedNodeIds).filter((id) => resourceReferenceById.has(id));
+        if (!ids.length) {
+            appMessage.warning("请先在画布上选中要引用的图片或素材");
+            return;
+        }
+        setRemovedReferenceIds((previous) => {
+            const next = new Set(previous);
+            ids.forEach((id) => next.delete(id));
+            return next;
+        });
+        setComposerReferenceIds((previous) => Array.from(new Set([...previous, ...ids])));
+    }, [appMessage, resourceReferenceById, selectedNodeIds]);
     const iconButtonStyle = { color: theme.node.muted };
     const settleDeleteConfirmation = (confirmed: boolean) => {
         const pending = pendingDeleteRef.current;
@@ -794,6 +808,8 @@ export function CanvasAssistantPanel({
                         onOpenUpload={onOpenUpload}
                         onOpenAssets={onOpenAssets}
                         onPasteImage={onPasteImage}
+                        selectedReferenceCount={selectedReferenceCount}
+                        onReferenceSelected={referenceSelectedNodes}
                     />
                 ) : null}
 

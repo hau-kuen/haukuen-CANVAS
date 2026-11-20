@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { AUTH_TOKEN_KEY, fetchCurrentUser, login, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
+import { AUTH_TOKEN_KEY, autoLogin, fetchCurrentUser, login, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
 
 type UserStore = {
     token: string;
@@ -29,7 +29,13 @@ export const useUserStore = create<UserStore>()(
             hydrateUser: async () => {
                 const token = get().token;
                 if (!token) {
-                    set({ user: null, isReady: true });
+                    // 去掉登录墙：免密登录（后端签发默认 admin token），用户无感知，拿到 token 后才能拉取后端配置。
+                    try {
+                        const session = await autoLogin();
+                        set({ token: session.token, user: session.user, isReady: true });
+                    } catch {
+                        set({ user: null, isReady: true });
+                    }
                     return;
                 }
                 set({ isLoading: true });

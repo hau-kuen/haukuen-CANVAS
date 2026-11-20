@@ -35,7 +35,7 @@ type ResponsesApiResponse = {
 };
 
 type ChatImagesApiResponse = {
-    choices?: Array<{ message?: { images?: Array<{ image_url?: { url?: string } }> } }>;
+    choices?: Array<{ message?: { images?: Array<{ image_url?: { url?: string } }>; content?: string } }>;
     error?: { message?: string };
     code?: number;
     msg?: string;
@@ -190,6 +190,10 @@ function isZhipuImageModel(model: string) {
     return value === "glm-image" || value.startsWith("cogview-");
 }
 
+function isNanoBananaModel(model: string) {
+    return model.trim().toLowerCase().includes("nano-banana");
+}
+
 function normalizeZhipuImageQuality(model: string, quality: string) {
     if (model.trim().toLowerCase() === "glm-image") return "hd";
     if (quality === "auto") return quality;
@@ -278,8 +282,14 @@ function parseChatImagesPayload(payload: ChatImagesApiResponse): GeneratedImage[
     if (typeof payload.code === "number" && payload.code !== 0) throw new ImageRequestError(payload.msg || "请求失败", payload);
     if (payload.error?.message) throw new ImageRequestError(payload.error.message, payload);
     const images = payload.choices
-        ?.flatMap((choice) => choice.message?.images || [])
-        .map((item) => item.image_url?.url || "")
+        ?.flatMap((choice) => {
+            const fromImages = choice.message?.images?.map((item) => item.image_url?.url || "") || [];
+            const content = choice.message?.content || "";
+            const fromMarkdown = typeof content === "string"
+                ? [...content.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)].map((m) => m[1])
+                : [];
+            return [...fromImages, ...fromMarkdown];
+        })
         .filter(Boolean)
         .map((dataUrl) => ({ id: nanoid(), dataUrl })) || [];
     if (!images.length) throw new ImageRequestError("Chat Completions 没有返回图片", payload);
@@ -977,7 +987,12 @@ async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?
     }
     if (config.apiMode === "chat" && !isGeminiConfig(config) && !isZhipuImageModel(config.model)) return requestChatImagesSingle(config, prompt, inputImageDataUrls, params);
     if (config.apiMode === "responses" && !isGeminiConfig(config) && !isZhipuImageModel(config.model)) return requestResponsesSingle(config, prompt, inputImageDataUrls, params);
-    return references.length ? requestImageEditSingle(config, prompt, references, params) : requestImageGenerationSingle(config, prompt, params);
+    if (references.length) {
+        // nano-banana（grsai 等 Gemini 系模型）不支持 /images/edits，图片编辑走 chat/completions（带图 + 指令）
+        if (isNanoBananaModel(config.model)) return requestChatImagesSingle(config, prompt, inputImageDataUrls, params);
+        return requestImageEditSingle(config, prompt, references, params);
+    }
+    return requestImageGenerationSingle(config, prompt, params);
 }
 
 async function imageTranslationInput(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams): Promise<TranslationInput> {
@@ -1144,6 +1159,20 @@ async function createCanvasImageTaskRequest(config: AiConfig & { seedIndex?: num
             method: "POST",
             headers: jsonHeaders,
             body: JSON.stringify({ endpoint: "/responses", ...meta, request: body }),
+        };
+    }
+    if (references.length && isNanoBananaModel(config.model)) {
+        const inputImageDataUrls = await Promise.all(references.map((image) => imageToDataUrl(image)));
+        const imageBase64 = inputImageDataUrls[0]?.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "") || "";
+        const body: Record<string, unknown> = {
+            model: config.model,
+            prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
+            image: imageBase64,
+        };
+        return {
+            method: "POST",
+            headers: jsonHeaders,
+            body: JSON.stringify({ endpoint: "/draw/nano-banana", ...meta, request: body }),
         };
     }
     if (references.length && isGrok2APIImageConfig(config)) {

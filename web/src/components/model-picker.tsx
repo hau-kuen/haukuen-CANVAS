@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { Cpu } from "lucide-react";
+import { ChevronDown, ChevronRight, Cpu } from "lucide-react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
@@ -56,6 +56,28 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     }, [channelId, channelOptions, value, workflowEnabled, workflowRef]);
     const options = channelOptions;
     const current = workflowRef && workflowEnabled ? (currentOption && "label" in currentOption ? currentOption.label : "") : value || "";
+    const [collapsedSeries, setCollapsedSeries] = useState<Set<string>>(new Set());
+    const seriesGroups = useMemo(() => {
+        const grouped = new Map<string, PickerOption[]>();
+        const ungrouped: PickerOption[] = [];
+        for (const option of options) {
+            const series = "workflowRef" in option ? "" : modelSeries(option.model);
+            if (series) {
+                const list = grouped.get(series) || [];
+                list.push(option);
+                grouped.set(series, list);
+            } else {
+                ungrouped.push(option);
+            }
+        }
+        return { groups: Array.from(grouped.entries()).map(([label, items]) => ({ label, items })), ungrouped };
+    }, [options]);
+    const toggleSeries = (label: string) => setCollapsedSeries((previous) => {
+        const next = new Set(previous);
+        if (next.has(label)) next.delete(label);
+        else next.add(label);
+        return next;
+    });
     const currentValue = current && currentOption ? currentOption.key : "";
 
 	useEffect(() => {
@@ -122,12 +144,39 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                 onPointerDown={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
             >
-                {options.length ? (
-                    options.map((option) => (
-                        <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
-                            <ModelLabel model={"workflowRef" in option ? option.workflowRef.workflowId : option.model} label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)} channelName={option.channelName} />
-                        </SelectItem>
-                    ))
+                {seriesGroups.groups.length || seriesGroups.ungrouped.length ? (
+                    <>
+                        {seriesGroups.groups.map((group) => {
+                            const collapsed = collapsedSeries.has(group.label);
+                            const items = group.items.map((option) => (
+                                <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
+                                    <ModelLabel model={"workflowRef" in option ? option.workflowRef.workflowId : option.model} label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)} channelName={option.channelName} />
+                                </SelectItem>
+                            ));
+                            if (group.items.length <= 1) return <div key={group.label}>{items}</div>;
+                            return (
+                                <div key={group.label}>
+                                    <div
+                                        role="button"
+                                        tabIndex={-1}
+                                        className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"
+                                        onClick={() => toggleSeries(group.label)}
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                    >
+                                        <span>{group.label}（{group.items.length}）</span>
+                                        {collapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                                    </div>
+                                    {!collapsed ? items : null}
+                                </div>
+                            );
+                        })}
+                        {seriesGroups.ungrouped.map((option) => (
+                            <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
+                                <ModelLabel model={"workflowRef" in option ? option.workflowRef.workflowId : option.model} label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)} channelName={option.channelName} />
+                            </SelectItem>
+                        ))}
+                    </>
                 ) : (
                     <SelectItem value="__empty__" disabled>
                         {config.channelMode === "remote" ? "暂无可用模型" : "请先到配置里拉取模型列表"}
@@ -161,5 +210,34 @@ function resolveModelIcon(model: string) {
     if (name.includes("grok") || name.includes("grok")) return "/icons/grok.svg";
     if (name.includes("deepseek") || name.includes("deepseek")) return "/icons/deepseek.svg";
     if (name.includes("glm") || name.includes("glm")) return "/icons/glm.svg";
+    return "";
+}
+
+/** 按模型名归并到同一系列，用于在模型下拉里折叠同系列模型；无法识别返回空串。 */
+function modelSeries(model: string): string {
+    const name = model.toLowerCase();
+    const series: Array<[string, string]> = [
+        ["gpt-image", "GPT Image"],
+        ["nano-banana", "Nano Banana"],
+        ["deepseek", "DeepSeek"],
+        ["gemini", "Gemini"],
+        ["grok", "Grok"],
+        ["flux", "Flux"],
+        ["seedream", "Seedream"],
+        ["kling", "Kling"],
+        ["claude", "Claude"],
+        ["glm", "GLM"],
+        ["qwen", "Qwen"],
+        ["minimax", "MiniMax"],
+        ["dall-e", "DALL·E"],
+        ["dalle", "DALL·E"],
+        ["sora", "Sora"],
+        ["veo", "Veo"],
+        ["wan", "Wan"],
+        ["hailuo", "Hailuo"],
+    ];
+    for (const [key, label] of series) {
+        if (name.includes(key)) return label;
+    }
     return "";
 }

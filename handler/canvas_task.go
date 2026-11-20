@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -710,6 +711,11 @@ func collectImageCandidates(value any, depth int, includeChatImages bool) []stri
 	switch typed := value.(type) {
 	case string:
 		text := strings.TrimSpace(typed)
+		if strings.Contains(text, "![") && strings.Contains(text, "](") {
+			if urls := markdownImageURLs(text); len(urls) > 0 {
+				return urls
+			}
+		}
 		if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") || strings.HasPrefix(text, "data:image/") || looksLikeBase64(text) {
 			return []string{text}
 		}
@@ -723,7 +729,7 @@ func collectImageCandidates(value any, depth int, includeChatImages bool) []stri
 		if thought, _ := typed["thought"].(bool); thought && typed["inlineData"] != nil {
 			return nil
 		}
-		keys := []string{"url", "b64_json", "partial_image_b64", "image_url", "image", "image_data", "base64", "inlineData", "parts", "content", "candidates", "result", "response", "data", "output"}
+		keys := []string{"url", "b64_json", "partial_image_b64", "image_url", "image", "image_data", "base64", "inlineData", "parts", "content", "candidates", "result", "results", "response", "data", "output"}
 		if includeChatImages {
 			keys = append(keys, "choices", "message", "images")
 		}
@@ -734,6 +740,19 @@ func collectImageCandidates(value any, depth int, includeChatImages bool) []stri
 		return result
 	}
 	return nil
+}
+
+var markdownImageURLPattern = regexp.MustCompile(`!\[[^\]]*\]\((https?://[^)\s]+)\)`)
+
+func markdownImageURLs(text string) []string {
+	matches := markdownImageURLPattern.FindAllStringSubmatch(text, -1)
+	urls := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) > 1 {
+			urls = append(urls, match[1])
+		}
+	}
+	return urls
 }
 
 func imageCandidateBytes(value string) ([]byte, string, error) {

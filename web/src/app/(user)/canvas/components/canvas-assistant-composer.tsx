@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ArrowUp, Brain, FolderOpen, ImageIcon, Menu, Square, Upload, Video } from "lucide-react";
+import { ArrowUp, Brain, FolderOpen, ImageIcon, ImagePlus, Menu, Square, Upload, Video } from "lucide-react";
 import { Button, Dropdown, Popover, Progress, Tooltip } from "antd";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -35,6 +35,8 @@ export type CanvasAssistantComposerProps = {
     onOpenUpload: () => void;
     onOpenAssets: () => void;
     onPasteImage: (file: File) => void;
+    selectedReferenceCount?: number;
+    onReferenceSelected?: () => void;
 };
 
 export function CanvasAssistantComposer({
@@ -57,6 +59,8 @@ export function CanvasAssistantComposer({
     onOpenUpload,
     onOpenAssets,
     onPasteImage,
+    selectedReferenceCount,
+    onReferenceSelected,
 }: CanvasAssistantComposerProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const effectiveConfig = useEffectiveConfig();
@@ -107,13 +111,15 @@ export function CanvasAssistantComposer({
                             trigger={["click"]}
                             menu={{
                                 items: [
+                                    { key: "reference-selected", icon: <ImagePlus className="size-4" />, label: `引用选中素材${selectedReferenceCount ? `（${selectedReferenceCount}）` : ""}`, disabled: !selectedReferenceCount },
+                                    { type: "divider" },
                                     { key: "upload", icon: <Upload className="size-4" />, label: "上传文件" },
                                     { key: "assets", icon: <FolderOpen className="size-4" />, label: "我的素材" },
                                 ],
-                                onClick: ({ key }) => (key === "upload" ? onOpenUpload() : onOpenAssets()),
+                                onClick: ({ key }) => (key === "upload" ? onOpenUpload() : key === "assets" ? onOpenAssets() : key === "reference-selected" ? onReferenceSelected?.() : undefined),
                             }}
                         >
-                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.text }} icon={<Menu className="size-4" />} aria-label="添加素材" />
+                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: selectedReferenceCount ? theme.canvas.selectionStroke : theme.node.text }} icon={<Menu className="size-4" />} aria-label="添加素材" />
                         </Dropdown>
                         {onSkillSelect && onSkillRemove ? <CanvasAgentSkillPopover selectedSkills={selectedSkills} onSelect={onSkillSelect} onDeleteSelected={onSkillRemove} /> : null}
                         {codexControls}

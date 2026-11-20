@@ -54,7 +54,7 @@ import { CanvasConfigNodePanel } from "../components/canvas-config-node-panel";
 import { CanvasDirector } from "../components/canvas-director";
 import { CanvasDirectorNodePanel } from "../components/canvas-director-node-panel";
 import { CanvasAssistantPanel } from "../components/canvas-assistant-panel";
-import { CanvasNodeContextMenu } from "../components/canvas-context-menu";
+import { CanvasContextMenu, CanvasNodeContextMenu } from "../components/canvas-context-menu";
 import { CanvasNodeAngleDialog, type CanvasImageAngleParams } from "../components/canvas-node-angle-dialog";
 import { CanvasNodeCropDialog, type CanvasImageCropRect } from "../components/canvas-node-crop-dialog";
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "../components/canvas-node-mask-edit-dialog";
@@ -2096,7 +2096,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const pasteSystemClipboard = useCallback(async (data: DataTransfer) => {
         let files = Array.from(data.files);
         const text = data.getData("text/plain");
-        if (data.types.some((type) => type.startsWith("image/")) && navigator.clipboard?.read) {
+        const hasMediaInFiles = files.some((file) => file.size > 0 && (file.type.startsWith("image/") || file.type.startsWith("video/")));
+        if (!hasMediaInFiles && navigator.clipboard?.read) {
             try {
                 const items = await navigator.clipboard.read();
                 const imageItem = items.find((item) => item.types.some((type) => type.startsWith("image/")));
@@ -3164,7 +3165,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const preventCanvasContextMenu = useCallback((event: ReactMouseEvent) => {
         if ((event.target as HTMLElement).closest("[data-node-id]")) return;
         event.preventDefault();
-        setContextMenu(null);
+        setContextMenu({ type: "canvas", x: event.clientX, y: event.clientY });
     }, []);
 
     const handleGenerateNode = useCallback(
@@ -4803,6 +4804,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     onRetry={(node) => void handleRetryNode(node)}
                     onToggleFreeResize={(node) => toggleNodeFreeResize(node.id)}
                     onDelete={(node) => deleteNodes(new Set([node.id]))}
+                    onCameraControl={(cameraControl) => {
+                        if (toolbarNode) handleConfigNodeChange(toolbarNode.id, { cameraControl });
+                    }}
                 />
 
                 <CanvasToolbar
@@ -4838,7 +4842,35 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
 
                 <CanvasZoomControls scale={viewport.k} onScaleChange={setZoomScale} onReset={resetViewport} isMiniMapOpen={isMiniMapOpen} onToggleMiniMap={() => setIsMiniMapOpen((value) => !value)} />
 
-                {contextMenu ? (
+                {contextMenu?.type === "canvas" ? (
+                    <CanvasContextMenu
+                        x={contextMenu.x}
+                        y={contextMenu.y}
+                        canUndo={historyState.canUndo}
+                        canRedo={historyState.canRedo}
+                        onClose={() => setContextMenu(null)}
+                        onUpload={() => {
+                            handleUploadRequest();
+                            setContextMenu(null);
+                        }}
+                        onAddNode={() => {
+                            setNodeCreatePosition(screenToCanvas(contextMenu.x, contextMenu.y));
+                            setContextMenu(null);
+                        }}
+                        onUndo={() => {
+                            undoCanvas();
+                            setContextMenu(null);
+                        }}
+                        onRedo={() => {
+                            redoCanvas();
+                            setContextMenu(null);
+                        }}
+                        onPaste={() => {
+                            void pasteSystemClipboard(new DataTransfer());
+                            setContextMenu(null);
+                        }}
+                    />
+                ) : contextMenu ? (
                     <CanvasNodeContextMenu
                         menu={contextMenu}
                         canCaptureVideoFrame={contextMenuNode?.type === CanvasNodeType.Video && Boolean(contextMenuNode.metadata?.content)}

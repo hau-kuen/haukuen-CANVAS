@@ -24,9 +24,8 @@ func AdminAuth(c *gin.Context) {
 func UserAuth(c *gin.Context) {
 	user, ok := authUser(c)
 	if !ok || user.Role == model.UserRoleGuest {
-		handler.FailWithStatus(c.Writer, http.StatusUnauthorized, "未登录或权限不足")
-		c.Abort()
-		return
+		// 去掉登录墙：未登录自动使用默认 admin 账号，无需注册登录。
+		user = service.DefaultAutoLoginUser()
 	}
 	c.Request = c.Request.WithContext(service.WithUser(c.Request.Context(), user))
 	c.Next()

@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { App, Modal, Segmented, Tooltip } from "antd";
-import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Scissors, Settings2, Trash2, Upload, Video } from "lucide-react";
+import { Download, Ellipsis, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Scissors, Settings2, Star, Tag, Trash2, Upload, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, getDataUrlByteSize } from "@/lib/image-utils";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "../types";
+import { CanvasNodeType, type CameraControlOptions, type CanvasNodeData, type ViewportTransform } from "../types";
 import { isCanvasImageNodeType, isPanoramaNodeType } from "../utils/canvas-panorama";
+import { CanvasCameraControl } from "./canvas-camera-control";
 import { ImageToolSettingsModal, type ImageToolbarSettingsTool } from "./canvas-image-toolbar-settings-modal";
 import { IMAGE_QUICK_TOOLS_STORAGE_KEY, PANORAMA_QUICK_TOOLS_STORAGE_KEY, buildImageToolbarTools, defaultImageQuickToolIds, defaultPanoramaQuickToolIds, readImageQuickToolsConfig, type ImageQuickToolId } from "./canvas-image-toolbar-tools";
 
@@ -41,6 +42,7 @@ type CanvasNodeHoverToolbarProps = {
     onRetry: (node: CanvasNodeData) => void;
     onToggleFreeResize: (node: CanvasNodeData) => void;
     onDelete: (node: CanvasNodeData) => void;
+    onCameraControl: (cameraControl: CameraControlOptions) => void;
 };
 
 type ToolbarTool = {
@@ -81,6 +83,7 @@ export function CanvasNodeHoverToolbar({
     onRetry,
     onToggleFreeResize,
     onDelete,
+    onCameraControl,
 }: CanvasNodeHoverToolbarProps) {
     const [quickToolsConfigs, setQuickToolsConfigs] = useState(() => ({
         [IMAGE_QUICK_TOOLS_STORAGE_KEY]: { ids: defaultImageQuickToolIds, showLabels: true },
@@ -160,7 +163,8 @@ export function CanvasNodeHoverToolbar({
     ];
     const nodeToolbarTools: ToolbarTool[] = [
         ...(canRetry ? [{ id: "retry", title: "重新生成", label: "重试", icon: <RefreshCw className="size-4" />, onClick: () => onRetry(node) }] : []),
-        ...(hasImage || hasVideo || isText ? [{ id: "saveAsset", title: "加入我的素材", label: "存素材", icon: <FolderPlus className="size-4" />, onClick: () => onSaveAsset(node) }] : []),
+        ...(hasImage || hasVideo || isText ? [{ id: "tag", title: "加入我的素材", label: "标签", icon: <Tag className="size-4" />, onClick: () => onSaveAsset(node) }] : []),
+        ...(hasImage || hasVideo || isText ? [{ id: "saveAsset", title: "收藏", label: "收藏", icon: <Star className="size-4" />, onClick: () => onSaveAsset(node) }] : []),
         ...((hasVideo || hasAudio) && !node.metadata?.storageKey?.startsWith("server:") ? [{ id: "uploadMediaToCloud", title: "上传至云存储", label: "上传至云存储", icon: <Upload className="size-4" />, onClick: () => onUploadMediaToCloud(node) }] : []),
         ...(hasImage && !node.metadata?.storageKey?.startsWith("server:") ? [{ id: "uploadImageToCloud", title: "上传至云存储", label: "上传至云存储", icon: <Upload className="size-4" />, onClick: () => onUploadImageToCloud(node) }] : []),
         ...(hasVideo ? [{
@@ -188,7 +192,8 @@ export function CanvasNodeHoverToolbar({
         ...(isAudio ? [{ id: "uploadAudio", title: hasAudio ? "替换音频" : "上传音频", label: hasAudio ? "替换音频" : "上传音频", icon: <Music2 className="size-4" />, onClick: () => onUpload(node) }] : []),
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
-    const toolbarTools = hasImage ? [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => tool.id === "uploadImageToCloud" || quickImageToolIdSet.has(tool.id as ImageQuickToolId)) : [...baseToolbarTools, ...nodeToolbarTools];
+    const imageToolOrder: ImageQuickToolId[] = ["tag", "saveAsset", "split", "maskEdit", "crop", "download", "view"];
+    const toolbarTools = hasImage ? imageToolOrder.filter((id) => quickImageToolIdSet.has(id)).map((id) => nodeToolbarTools.find((tool) => tool.id === id)).filter((tool): tool is ToolbarTool => Boolean(tool)) : [...baseToolbarTools, ...nodeToolbarTools];
     const selectableImageToolbarTools = [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => tool.id !== "retry" && tool.id !== "uploadImageToCloud") as ImageToolbarSettingsTool[];
 
     const closeImageToolSettings = () => {
@@ -233,8 +238,12 @@ export function CanvasNodeHoverToolbar({
                 onPointerDown={(event) => event.stopPropagation()}
             >
                 {toolbarTools.map((tool) => (
-                    <ToolbarAction key={tool.id} {...tool} showLabel={showImageToolLabels} />
+                    <Fragment key={tool.id}>
+                        {hasImage && tool.id === "split" ? <span className="h-4 w-px bg-white/20" /> : null}
+                        <ToolbarAction {...tool} showLabel={showImageToolLabels} />
+                    </Fragment>
                 ))}
+                {hasImage ? <CanvasCameraControl value={node.metadata?.cameraControl} onChange={onCameraControl} buttonClassName="!h-8 !w-8 !min-w-8 !p-0 !justify-center !rounded-lg [&_span:last-child]:hidden" /> : null}
                 {hasImage ? <ToolbarAction id="more" title="配置快捷工具" label="更多" icon={<Ellipsis className="size-4" />} active={imageToolSettingsOpen} onClick={openImageToolSettings} showLabel={showImageToolLabels} /> : null}
             </div>
             {hasImage ? (

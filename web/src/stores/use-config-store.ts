@@ -113,12 +113,12 @@ export type ModelCapabilities = Partial<Record<string, ModelCapability>>;
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
-    baseUrl: "https://api.openai.com",
+    baseUrl: "https://api.deepseek.com",
     apiKey: "",
-    model: "gpt-image-2",
-    imageModel: "gpt-image-2",
+    model: "nano-banana-2",
+    imageModel: "nano-banana-2",
     videoModel: "grok-imagine-video",
-    textModel: "gpt-5.5",
+    textModel: "deepseek-chat",
     audioModel: "gpt-4o-mini-tts",
     audioVoice: "alloy",
     audioFormat: "mp3",
@@ -174,7 +174,11 @@ export const defaultConfig: AiConfig = {
         workflow: "",
         workflowAgent: "",
     },
-    localChannels: [],
+    localChannels: [
+        { id: "deepseek", protocol: "openai", name: "DeepSeek", baseUrl: "https://api.deepseek.com", apiKey: "", models: ["deepseek-chat", "deepseek-reasoner"] },
+        { id: "grsai", protocol: "openai", name: "grsai", baseUrl: "https://api.grsai.ai", apiKey: "", models: ["nano-banana-2", "nano-banana-2.1", "nano-banana-fast", "nano-banana-pro"] },
+        { id: "runninghub", protocol: "runninghub", name: "RunningHub", baseUrl: "https://www.runninghub.cn", apiKey: "", models: [] },
+    ],
     publicChannels: [],
     syncStorageConfig: false,
     syncWebDAVStorageConfig: false,
@@ -429,6 +433,9 @@ export const useConfigStore = create<ConfigStore>()(
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
                 const config = { ...defaultConfig, ...persistedConfig };
+                if (!Array.isArray(config.localChannels) || config.localChannels.length === 0) {
+                    config.localChannels = defaultConfig.localChannels;
+                }
                 const localChannels = normalizeLocalChannels(config);
                 const modelChannels = localChannels.filter((channel) => !isWorkflowProtocol(channel.protocol));
                 const localModels = normalizeModelList(modelChannels.flatMap((channel) => channel.models));

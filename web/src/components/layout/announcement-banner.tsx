@@ -1,14 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Carousel, type GetRef } from "antd";
 import { Megaphone, X } from "lucide-react";
 
-const ANNOUNCEMENTS = [
-    <><Megaphone />TokenDance X 百亿 Token 补贴，一键登录即可接入，SD 2 Mini 低至 0.09元/秒 <a href="https://tokendance.space/" target="_blank" rel="noopener" className="underline!">查看详情</a></>,
-    <><Megaphone />无限画布现已支持 RunningHub X ComfyUI 工作流</>,
-    <><Megaphone />微信交流群现已开放 <a href="https://qr.tdeh.uk/ai" target="_blank" rel="noopener" className="underline!">扫码加入</a></>,
-];
+// 顶部公告横幅已按需关闭（原含 TokenDance 广告等推广），需要时在此恢复文案即可
+const ANNOUNCEMENTS: ReactNode[] = [];
 const DISMISSED_KEY = "infinite-canvas:announcement-dismissed";
 
 export function AnnouncementBanner() {

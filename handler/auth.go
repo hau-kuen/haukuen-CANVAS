@@ -89,6 +89,15 @@ func AdminLogin(w http.ResponseWriter, r *http.Request) {
 	OK(w, session)
 }
 
+func AutoLogin(w http.ResponseWriter, r *http.Request) {
+	session, err := service.AutoLogin()
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, session)
+}
+
 func CurrentUser(w http.ResponseWriter, r *http.Request) {
 	if user, ok := service.UserFromContext(r.Context()); ok {
 		OK(w, user)

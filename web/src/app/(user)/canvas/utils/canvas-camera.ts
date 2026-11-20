@@ -47,6 +47,94 @@ export interface LensProfile {
 
 export const CAMERA_PROFILES: CameraProfile[] = [
   {
+    id: 'hasselblad_h6d_100c',
+    label: 'Hasselblad H6D-100c',
+    zhName: '哈苏 H6D-100c',
+    shortTag: 'Hasselblad H6D-100c',
+    profilePrompt:
+      'shot on Hasselblad H6D-100c, 100MP medium format sensor, legendary Hasselblad natural color science, extraordinary tonal gradation, silky highlight rolloff, ultra-fine detail retention, premium commercial still photography look',
+    bodyColor: '#2e2e2e', accentColor: '#f0a030',
+    description: '100MP 中画幅，哈苏自然色彩，顶级商业摄影机。',
+    useCase: '时尚大片、奢侈品广告、高端人像',
+  },
+  {
+    id: 'phase_one_xf_iq4',
+    label: 'Phase One XF IQ4',
+    zhName: '飞思 XF IQ4',
+    shortTag: 'Phase One XF IQ4',
+    profilePrompt:
+      'shot on Phase One XF IQ4 150MP, 150-megapixel medium format, unrivaled resolution and dynamic range, ultra-smooth tonal transitions, fashion and luxury advertising standard',
+    bodyColor: '#232323', accentColor: '#4d90d0',
+    description: '150MP 中画幅，极致分辨率，时尚与奢侈品广告标配。',
+    useCase: '高端时尚、珠宝、超大幅输出',
+  },
+  {
+    id: 'canon_eos_r5',
+    label: 'Canon EOS R5',
+    zhName: '佳能 EOS R5',
+    shortTag: 'Canon EOS R5',
+    profilePrompt:
+      'shot on Canon EOS R5, 45MP full-frame sensor, Canon color science with warm skin tones, clean modern digital detail, versatile commercial photography look',
+    bodyColor: '#2d1f1f', accentColor: '#e03030',
+    description: '45MP 全画幅，佳能暖调肤色，商业摄影主流。',
+    useCase: '商业人像、电商、产品',
+  },
+  {
+    id: 'sony_a7r5',
+    label: 'Sony A7R V',
+    zhName: '索尼 A7R V',
+    shortTag: 'Sony A7R V',
+    profilePrompt:
+      'shot on Sony A7R V, 61MP full-frame sensor, exceptional micro-contrast and detail, neutral accurate color, crisp professional still photography look',
+    bodyColor: '#2a2a2a', accentColor: '#f07800',
+    description: '61MP 全画幅，微反差细腻，专业静态摄影。',
+    useCase: '风光、产品、细节纹理',
+  },
+  {
+    id: 'nikon_z9',
+    label: 'Nikon Z9',
+    zhName: '尼康 Z9',
+    shortTag: 'Nikon Z9',
+    profilePrompt:
+      'shot on Nikon Z9, 45.7MP full-frame stacked sensor, natural Nikon color rendering, outstanding dynamic range, reliable pro photography look',
+    bodyColor: '#26262b', accentColor: '#f5d010',
+    description: '45.7MP 全画幅，动态范围出色，全能旗舰。',
+    useCase: '商业、体育、纪实',
+  },
+  {
+    id: 'fujifilm_gfx100_ii',
+    label: 'Fujifilm GFX100 II',
+    zhName: '富士 GFX100 II',
+    shortTag: 'Fujifilm GFX100 II',
+    profilePrompt:
+      'shot on Fujifilm GFX100 II, 102MP medium format, Fujifilm color science with film-like tonal character, rich smooth gradation, fine-art commercial look',
+    bodyColor: '#2b2b2b', accentColor: '#e02030',
+    description: '102MP 中画幅，胶片感色调，性价比中画幅。',
+    useCase: '艺术人像、胶片感商业片',
+  },
+  {
+    id: 'leica_sl2',
+    label: 'Leica SL2',
+    zhName: '徕卡 SL2',
+    shortTag: 'Leica SL2',
+    profilePrompt:
+      'shot on Leica SL2, 47MP full-frame sensor, Leica color science, characterful micro-contrast, subtle 3D pop, premium editorial photography look',
+    bodyColor: '#2a2a2a', accentColor: '#d03030',
+    description: '47MP 全画幅，徕卡色彩，独特微反差。',
+    useCase: '高级编辑、杂志、人文',
+  },
+  {
+    id: 'canon_5d4',
+    label: 'Canon 5D Mark IV',
+    zhName: '佳能 5D Mark IV',
+    shortTag: 'Canon 5D Mark IV',
+    profilePrompt:
+      'shot on Canon 5D Mark IV, 30MP full-frame sensor, classic Canon skin tones, reliable balanced rendering, timeless commercial photography look',
+    bodyColor: '#2d2420', accentColor: '#e0a030',
+    description: '30MP 全画幅，经典佳能肤色，稳定可靠。',
+    useCase: '婚礼、商业、标准人像',
+  },
+  {
     id: 'panavision_dxl2',
     label: 'Panavision DXL2',
     zhName: '潘那维申 DXL2',
@@ -133,10 +221,97 @@ export const CAMERA_PROFILES: CameraProfile[] = [
     bodyColor: '#332a22', accentColor: '#e8c070',
     description: '佳能色彩科学，暖调肤色，广播级电影机。',
     useCase: '广告、电视剧、婚礼电影',
-  },
-];
+  },];
 
 export const LENS_PROFILES: LensProfile[] = [
+  {
+    id: 'zeiss_otus_55',
+    label: 'Zeiss Otus 55mm',
+    zhName: '蔡司 Otus 55mm',
+    shortTag: 'Zeiss Otus 55mm',
+    profilePrompt:
+      'Zeiss Otus 55mm f/1.4 lens, apochromatic perfection, extreme sharpness wide open, neutral color, smooth creamy bokeh, reference-grade portrait rendering',
+    lensColor: '#1e1e22', ringColor: '#f0c040',
+    description: '蔡司顶级定焦，全开锐利，参考级画质。',
+    useCase: '人像、静物、极致画质',
+  },
+  {
+    id: 'canon_rf_50_12l',
+    label: 'Canon RF 50mm f/1.2L',
+    zhName: '佳能 RF 50mm f/1.2L',
+    shortTag: 'Canon RF 50mm f/1.2L',
+    profilePrompt:
+      'Canon RF 50mm f/1.2L lens, ultra-wide aperture, dreamy soft bokeh, warm natural skin rendering, gentle contrast, luxury portrait look',
+    lensColor: '#2d1f1f', ringColor: '#e03030',
+    description: '佳能大光圈定焦，梦幻虚化，奢华人像。',
+    useCase: '人像、婚礼、时尚',
+  },
+  {
+    id: 'sony_fe_50_12gm',
+    label: 'Sony FE 50mm f/1.2 GM',
+    zhName: '索尼 FE 50mm f/1.2 GM',
+    shortTag: 'Sony FE 50mm f/1.2 GM',
+    profilePrompt:
+      'Sony FE 50mm f/1.2 GM lens, creamy rounded bokeh, high resolution wide open, neutral modern rendering, professional portrait look',
+    lensColor: '#26262a', ringColor: '#f07800',
+    description: '索尼 G Master 定焦，圆形虚化，全开高解析。',
+    useCase: '人像、商业、环境肖像',
+  },
+  {
+    id: 'nikon_z_58_noct',
+    label: 'Nikon Z 58mm f/0.95 Noct',
+    zhName: '尼康 Z 58mm f/0.95 Noct',
+    shortTag: 'Nikon Z 58mm f/0.95 Noct',
+    profilePrompt:
+      'Nikon Z 58mm f/0.95 Noct lens, extreme aperture, dreamy bokeh, pinpoint sharpness, luminous rendering, cinematic still photography look',
+    lensColor: '#1f1f26', ringColor: '#f5d010',
+    description: '尼康夜神，f/0.95 极致光圈，梦幻通透。',
+    useCase: '夜景人像、氛围、艺术',
+  },
+  {
+    id: 'sigma_art_35',
+    label: 'Sigma Art 35mm f/1.4',
+    zhName: '适马 Art 35mm f/1.4',
+    shortTag: 'Sigma Art 35mm f/1.4',
+    profilePrompt:
+      'Sigma Art 35mm f/1.4 lens, high resolution, crisp micro-contrast, slightly cool neutral rendering, versatile editorial look',
+    lensColor: '#2b2b2b', ringColor: '#60b0e0',
+    description: '适马 Art 系列，高解析微反差，编辑级画质。',
+    useCase: '环境人像、街拍、编辑',
+  },
+  {
+    id: 'leica_summilux_50',
+    label: 'Leica Summilux 50mm f/1.4',
+    zhName: '徕卡 Summilux 50mm f/1.4',
+    shortTag: 'Leica Summilux 50mm f/1.4',
+    profilePrompt:
+      'Leica Summilux 50mm f/1.4 lens, distinctive Leica character, gentle glow wide open, rich color, classic reportage and portrait rendering',
+    lensColor: '#2a2a2a', ringColor: '#d03030',
+    description: '徕卡经典，全开微光晕，色彩浓郁。',
+    useCase: '人文、纪实、经典人像',
+  },
+  {
+    id: 'hasselblad_xcd_90',
+    label: 'Hasselblad XCD 90mm f/3.2',
+    zhName: '哈苏 XCD 90mm f/3.2',
+    shortTag: 'Hasselblad XCD 90mm f/3.2',
+    profilePrompt:
+      'Hasselblad XCD 90mm f/3.2 lens, medium format portrait lens, smooth falloff, exquisite detail, elegant bokeh, premium fashion look',
+    lensColor: '#2b2b2b', ringColor: '#f0a030',
+    description: '哈苏中画幅人像镜，层次细腻，优雅虚化。',
+    useCase: '时尚、高端人像、中画幅',
+  },
+  {
+    id: 'fujifilm_gf_110',
+    label: 'Fujifilm GF 110mm f/2',
+    zhName: '富士 GF 110mm f/2',
+    shortTag: 'Fujifilm GF 110mm f/2',
+    profilePrompt:
+      'Fujifilm GF 110mm f/2 lens, medium format portrait lens, soft creamy bokeh, fine tonal gradation, flattering skin rendering',
+    lensColor: '#282828', ringColor: '#e02030',
+    description: '富士中画幅人像镜，柔和虚化，讨喜肤色。',
+    useCase: '艺术人像、胶片感商业',
+  },
   {
     id: 'arri_signature_prime',
     label: 'ARRI Signature Prime',
@@ -224,8 +399,7 @@ export const LENS_PROFILES: LensProfile[] = [
     lensColor: '#1f1f1f', ringColor: '#60d090',
     description: '微距特写专用，细节惊人，景深极浅。',
     useCase: '美食广告、珠宝、昆虫、细节',
-  },
-];
+  },];
 
 export const FOCAL_LENGTHS = [14, 18, 24, 35, 40, 50, 65, 85, 100, 135, 200] as const;
 export const APERTURES = [1.2, 1.4, 1.8, 2, 2.8, 4, 5.6, 8, 11, 16] as const;

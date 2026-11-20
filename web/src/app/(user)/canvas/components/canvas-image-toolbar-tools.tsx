@@ -1,12 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Brush, Camera, Copy, FileText, Grid2x2, Lock, LockOpen, Maximize2, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
+import { Camera, Copy, Crop, FileText, LayoutGrid, Lock, LockOpen, Maximize2, Paintbrush, Sparkles, Upload, ZoomIn } from "lucide-react";
 
 import type { CanvasNodeData } from "../types";
 
 export type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "view";
-export type ImageQuickToolId = "info" | "delete" | "saveAsset" | "download" | "edit" | ImageNodeActionToolId;
+export type ImageQuickToolId = "info" | "delete" | "saveAsset" | "download" | "edit" | "tag" | ImageNodeActionToolId;
 
 export type ImageToolHandlers = {
     onUpload: (node: CanvasNodeData) => void;
@@ -38,10 +38,10 @@ export type ImageQuickToolsConfig = {
     showLabels: boolean;
 };
 
-export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v6";
+export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v7";
 export const PANORAMA_QUICK_TOOLS_STORAGE_KEY = "canvas-panorama-quick-tools-v1";
 
-const defaultBaseToolIds: ImageQuickToolId[] = ["info", "delete", "saveAsset", "download"];
+const defaultBaseToolIds: ImageQuickToolId[] = ["info", "delete", "tag", "saveAsset", "download"];
 
 export const imageToolDefinitions: ImageToolDefinition[] = [
     {
@@ -87,7 +87,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
         panelLabel: "局部编辑",
         label: "局部编辑",
         title: "对图片进行局部修改",
-        icon: () => <Brush className="size-4" />,
+        icon: () => <Paintbrush className="size-4" />,
         run: (node, handlers) => handlers.onMaskEdit(node),
     },
     {
@@ -96,7 +96,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
         panelLabel: "裁剪",
         label: "裁剪",
         title: "裁剪并生成新节点",
-        icon: () => <Scissors className="size-4" />,
+        icon: () => <Crop className="size-4" />,
         run: (node, handlers) => handlers.onCrop(node),
     },
     {
@@ -105,7 +105,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
         panelLabel: "切图",
         label: "切图",
         title: "按行列切分图片",
-        icon: () => <Grid2x2 className="size-4" />,
+        icon: () => <LayoutGrid className="size-4" />,
         run: (node, handlers) => handlers.onSplit(node),
     },
     {
@@ -137,7 +137,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
     },
     {
         id: "view",
-        defaultVisible: false,
+        defaultVisible: true,
         panelLabel: "查看大图",
         label: "查看大图",
         title: "查看图片详情",
@@ -146,7 +146,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
     },
 ];
 
-export const defaultImageQuickToolIds: ImageQuickToolId[] = [...defaultBaseToolIds, ...imageToolDefinitions.filter((tool) => tool.defaultVisible).map((tool) => tool.id)];
+export const defaultImageQuickToolIds: ImageQuickToolId[] = ["tag", "saveAsset", "split", "maskEdit", "crop", "download", "view"];
 export const defaultPanoramaQuickToolIds: ImageQuickToolId[] = defaultImageQuickToolIds.filter((id) => id !== "replace");
 
 export function buildImageToolbarTools(node: CanvasNodeData, handlers: ImageToolHandlers) {

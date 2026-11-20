@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Button, Form, Input, Modal, Radio, Segmented, Select, Switch } from "antd";
+import { App, Button, Collapse, Form, Input, Modal, Radio, Segmented, Select, Switch } from "antd";
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 
@@ -38,12 +38,12 @@ type ModelGroup = {
     optionsLabel: string;
 };
 
-const modelGroups: ModelGroup[] = [
+const mainModelGroups: ModelGroup[] = [
     { capability: "image", modelKey: "imageModel", workflowKey: "imageWorkflowRef", channelKey: "imageChannelId", modelsKey: "imageModels", defaultLabel: "默认生图模型", optionsLabel: "生图模型可选项" },
     { capability: "video", modelKey: "videoModel", workflowKey: "videoWorkflowRef", channelKey: "videoChannelId", modelsKey: "videoModels", defaultLabel: "默认视频模型", optionsLabel: "视频模型可选项" },
     { capability: "text", modelKey: "textModel", channelKey: "textChannelId", modelsKey: "textModels", defaultLabel: "默认文本模型", optionsLabel: "文本模型可选项" },
-    { capability: "audio", modelKey: "audioModel", workflowKey: "audioWorkflowRef", channelKey: "audioChannelId", modelsKey: "audioModels", defaultLabel: "默认音频模型", optionsLabel: "音频模型可选项" },
 ];
+const audioModelGroup: ModelGroup = { capability: "audio", modelKey: "audioModel", workflowKey: "audioWorkflowRef", channelKey: "audioChannelId", modelsKey: "audioModels", defaultLabel: "默认音频模型", optionsLabel: "音频模型可选项" };
 
 const WorkflowChannelPane = dynamic(() => import("@/components/workflow/workflow-channel-pane").then((module) => module.WorkflowChannelPane), { ssr: false });
 
@@ -525,13 +525,26 @@ export function AppConfigModal() {
                             <div className="mt-1">由系统后台渠道转发请求，当前可用 {modelChannel?.availableModels.length || 0} 个模型。</div>
                         </div>
                     )}
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        {modelGroups.map((group) => (
+                    <div className="grid gap-4 md:grid-cols-3">
+                        {mainModelGroups.map((group) => (
                             <Form.Item key={group.modelKey} label={group.defaultLabel} className="mb-4">
                                 <ModelPicker config={modelConfig} value={modelConfig[group.modelKey]} channelId={modelConfig[group.channelKey]} workflowRef={group.workflowKey ? modelConfig[group.workflowKey] : undefined} onWorkflowChange={group.workflowKey ? (ref) => updateConfig(group.workflowKey!, ref) : undefined} onChange={(model, channelId) => { updateConfig(group.modelKey, model); if (channelId) updateConfig(group.channelKey, channelId); }} capability={group.capability} fullWidth />
                             </Form.Item>
                         ))}
                     </div>
+                    <Collapse
+                        ghost
+                        size="small"
+                        defaultActiveKey={[]}
+                        items={[
+                            {
+                                key: "advanced",
+                                label: "高级设置（音频 / 存储 / 其他开关）",
+                                children: (
+                                    <>
+                                        <Form.Item label={audioModelGroup.defaultLabel} className="mb-4">
+                                            <ModelPicker config={modelConfig} value={modelConfig[audioModelGroup.modelKey]} channelId={modelConfig[audioModelGroup.channelKey]} workflowRef={audioModelGroup.workflowKey ? modelConfig[audioModelGroup.workflowKey] : undefined} onWorkflowChange={audioModelGroup.workflowKey ? (ref) => updateConfig(audioModelGroup.workflowKey!, ref) : undefined} onChange={(model, channelId) => { updateConfig(audioModelGroup.modelKey, model); if (channelId) updateConfig(audioModelGroup.channelKey, channelId); }} capability={audioModelGroup.capability} fullWidth />
+                                        </Form.Item>
                     <div className="grid gap-4 md:grid-cols-4">
                         <Form.Item label="画布默认生图张数" extra="新建画布生图和配置节点默认使用，单个节点仍可单独覆盖。" className="mb-4">
                             <Input
@@ -667,11 +680,16 @@ export function AppConfigModal() {
                             </section>
                         </>
                     ) : null}
-                    {(!isMimoTtsModel(config.audioModel) || isMimoPresetTtsModel(config.audioModel) || isMimoVoiceCloneModel(config.audioModel)) && !glmTts && !grokTts && !miniMaxTts ? (
-                        <Form.Item label="默认音频指令" className="mb-4">
-                            <Input.TextArea rows={2} value={config.audioInstructions} placeholder="例如：自然、温暖、适合旁白。" onChange={(event) => updateConfig("audioInstructions", event.target.value)} />
-                        </Form.Item>
-                    ) : null}
+                                        {(!isMimoTtsModel(config.audioModel) || isMimoPresetTtsModel(config.audioModel) || isMimoVoiceCloneModel(config.audioModel)) && !glmTts && !grokTts && !miniMaxTts ? (
+                                            <Form.Item label="默认音频指令" className="mb-4">
+                                                <Input.TextArea rows={2} value={config.audioInstructions} placeholder="例如：自然、温暖、适合旁白。" onChange={(event) => updateConfig("audioInstructions", event.target.value)} />
+                                            </Form.Item>
+                                        ) : null}
+                                    </>
+                                ),
+                            },
+                        ]}
+                    />
                     {effectiveMode === "local" ? (
                         <Form.Item label="系统提示词" className="mb-0">
                             <Input.TextArea rows={3} value={config.systemPrompt} placeholder="例如：你是一位擅长电影感写实摄影的视觉导演。" onChange={(event) => updateConfig("systemPrompt", event.target.value)} />

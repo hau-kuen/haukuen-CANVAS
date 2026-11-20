@@ -106,6 +106,32 @@
 - 存储：SQLite、本地 IndexedDB、S3 兼容对象存储、Cloudflare R2  
 - 部署：Docker
 
+## 运行环境
+
+### 系统要求
+- Windows / macOS / Linux
+- 内存 ≥ 4GB（建议 8GB）
+
+### 依赖版本
+- Go ≥ 1.25
+- Node.js ≥ 18 或 Bun（推荐 Bun）
+- Docker（可选，容器部署时使用）
+
+### 默认端口
+| 服务 | 端口 |
+| --- | --- |
+| 后端 API | 8080 |
+| 前端 Web | 3000 |
+| 画布 Agent（canvas-agent） | 3210 |
+
+### 模型渠道配置（可选）
+首次打开前端「配置」面板，填入各渠道的 API Key 即可使用（Key 留空则该渠道不可用，未配置不影响本地画布编排功能）：
+- 文本 / Agent：DeepSeek（`https://api.deepseek.com`）
+- 生图：grsai（`https://api.grsai.ai`，nano-banana 系列等）
+- 视频：RunningHub（需工作流 ID + Key）
+
+> Key 仅保存在浏览器本地与本地 SQLite，不会上传第三方。
+
 ## 快速开始
 
 ```bash

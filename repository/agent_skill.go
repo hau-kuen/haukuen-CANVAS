@@ -173,33 +173,76 @@ func DismissDefaultAgentSkill(id string, current string) error {
 		return err
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
-		var item model.Setting
-		err := tx.Where(map[string]any{"key": model.SettingKeyAgentSkillsDismissedDefaults}).First(&item).Error
-		ids := []string{}
-		if err == nil {
-			_ = json.Unmarshal(item.Value, &ids)
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		for _, existing := range ids {
-			if existing == id {
-				return nil
-			}
-		}
-		ids = append(ids, id)
-		encoded, err := json.Marshal(ids)
-		if err != nil {
-			return err
-		}
-		setting := model.Setting{Key: model.SettingKeyAgentSkillsDismissedDefaults, Value: encoded, CreatedAt: current, UpdatedAt: current}
-		if item.CreatedAt != "" {
-			setting.CreatedAt = item.CreatedAt
-		}
-		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"})}).Create(&setting).Error
+		return addDismissedDefaultAgentSkills(tx, []string{id}, current)
 	})
 }
 
-func DeleteSystemAgentSkill(id string) error {
+func DefaultAgentSkillBaselineRecorded() (bool, error) {
+	db, err := DB()
+	if err != nil {
+		return false, err
+	}
+	var count int64
+	err = db.Model(&model.Setting{}).Where(map[string]any{"key": model.SettingKeyAgentSkillsDefaultBaseline}).Count(&count).Error
+	return count > 0, err
+}
+
+// RecordDefaultAgentSkillBaseline 在同一次事务里记下升级前已缺失的默认 Skill，并标记基线已写入。
+func RecordDefaultAgentSkillBaseline(ids []string, current string) error {
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := addDismissedDefaultAgentSkills(tx, ids, current); err != nil {
+			return err
+		}
+		item := model.Setting{Key: model.SettingKeyAgentSkillsDefaultBaseline, Value: json.RawMessage("true"), CreatedAt: current, UpdatedAt: current}
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"})}).Create(&item).Error
+	})
+}
+
+func addDismissedDefaultAgentSkills(tx *gorm.DB, extra []string, current string) error {
+	var item model.Setting
+	err := tx.Where(map[string]any{"key": model.SettingKeyAgentSkillsDismissedDefaults}).First(&item).Error
+	ids := []string{}
+	if err == nil {
+		_ = json.Unmarshal(item.Value, &ids)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			seen[id] = struct{}{}
+		}
+	}
+	for _, id := range extra {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	encoded, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	setting := model.Setting{Key: model.SettingKeyAgentSkillsDismissedDefaults, Value: encoded, CreatedAt: current, UpdatedAt: current}
+	if item.CreatedAt != "" {
+		setting.CreatedAt = item.CreatedAt
+	}
+	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"})}).Create(&setting).Error
+}
+
+// DeleteSystemAgentSkill 删除系统 Skill。默认 Skill 的删除和“不再自动恢复”写在同一个事务里。
+func DeleteSystemAgentSkill(id string, current string) error {
+	id = strings.TrimSpace(id)
 	db, err := DB()
 	if err != nil {
 		return err
@@ -208,7 +251,13 @@ func DeleteSystemAgentSkill(id string) error {
 		if err := tx.Delete(&model.AgentSkillFile{}, "skill_id = ?", id).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&model.AgentSkill{}, "id = ? AND source = ?", id, model.AgentSkillSourceSystem).Error
+		if err := tx.Delete(&model.AgentSkill{}, "id = ? AND source = ?", id, model.AgentSkillSourceSystem).Error; err != nil {
+			return err
+		}
+		if strings.HasPrefix(id, "agent-skill-default-") {
+			return addDismissedDefaultAgentSkills(tx, []string{id}, current)
+		}
+		return nil
 	})
 }
 

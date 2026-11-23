@@ -31,8 +31,11 @@ type defaultAgentSkillPackage struct {
 	Files       []model.AgentSkillFile
 }
 
+// 这一版新增的默认 Skill。升级基线只补它；当时已经不在库里的旧默认 Skill 视为用户删过，不再自动加回。
+const newlyAddedDefaultAgentSkillRoot = "skills/soul-street-outfit.md"
+
 // EnsureDefaultAgentSkills 在数据库首次初始化时导入全部默认 Skill。
-// 之后每次启动只补齐尚未入库、且没有被管理员删除过的默认 Skill，不覆盖已有内容。
+// 之后每次启动只补齐新增加的默认 Skill，不覆盖已有内容，也不恢复升级前已经缺失的旧默认 Skill。
 func EnsureDefaultAgentSkills() error {
 	initialized, err := repository.AgentSkillsInitialized()
 	if err != nil {
@@ -82,13 +85,22 @@ func syncMissingDefaultAgentSkills() error {
 	if err != nil {
 		return err
 	}
-	dismissed, err := repository.DismissedDefaultAgentSkillIDs()
-	if err != nil {
-		return err
-	}
 	present := make(map[string]struct{}, len(existing))
 	for _, item := range existing {
 		present[item.ID] = struct{}{}
+	}
+	baselined, err := repository.DefaultAgentSkillBaselineRecorded()
+	if err != nil {
+		return err
+	}
+	if !baselined {
+		if err := baselineMissingLegacyDefaultAgentSkills(packages, present); err != nil {
+			return err
+		}
+	}
+	dismissed, err := repository.DismissedDefaultAgentSkillIDs()
+	if err != nil {
+		return err
 	}
 	current := now()
 	missing := map[string]struct{}{}
@@ -120,6 +132,21 @@ func newDefaultAgentSkill(item defaultAgentSkillPackage, sort int, current strin
 		ID: id, Source: model.AgentSkillSourceSystem, Name: item.Name, Description: item.Description,
 		Content: item.Content, Enabled: true, Sort: sort, CreatedAt: current, UpdatedAt: current,
 	}, files, nil
+}
+
+func baselineMissingLegacyDefaultAgentSkills(packages []defaultAgentSkillPackage, present map[string]struct{}) error {
+	ids := make([]string, 0)
+	for _, item := range packages {
+		if item.Root == newlyAddedDefaultAgentSkillRoot {
+			continue
+		}
+		id := defaultAgentSkillID(item.Root)
+		if _, ok := present[id]; ok {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return repository.RecordDefaultAgentSkillBaseline(ids, now())
 }
 
 func missingDefaultAgentSkillPackages(packages []defaultAgentSkillPackage, present map[string]struct{}, dismissed map[string]struct{}) []defaultAgentSkillPackage {

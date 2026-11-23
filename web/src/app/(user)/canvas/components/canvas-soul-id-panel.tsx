@@ -22,6 +22,8 @@ export function CanvasSoulIdPanel({ config, theme, onChange }: CanvasSoulIdPanel
     const [busy, setBusy] = useState(false);
     const selected = (config.soulId || "").trim();
     const strength = config.soulStrength || "1";
+    const selectedItem = items.find((item) => item.id === selected);
+    const selectedReady = selectedItem?.status === "completed";
 
     const listKey = `${config.channelMode}:${config.imageChannelId}:${config.model}`;
     useEffect(() => {
@@ -41,17 +43,31 @@ export function CanvasSoulIdPanel({ config, theme, onChange }: CanvasSoulIdPanel
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [listKey]);
 
-    const selectedStatus = items.find((item) => item.id === selected)?.status || "";
+    const pendingIds = items.flatMap((item) => (item.id && item.status !== "completed" && item.status !== "failed" ? [item.id] : []));
+    if (selected && !items.some((item) => item.id === selected)) pendingIds.push(selected);
+    const pendingKey = pendingIds.join(",");
     useEffect(() => {
-        if (!selected || !selectedStatus || selectedStatus === "completed" || selectedStatus === "failed") return;
+        if (!pendingKey) return;
+        const ids = pendingKey.split(",");
         const timer = window.setInterval(() => {
-            void getSoulId(config, selected)
-                .then((next) => setItems((prev) => prev.map((item) => (item.id === next.id ? next : item))))
-                .catch(() => undefined);
+            ids.forEach((id) => {
+                void getSoulId(config, id)
+                    .then((next) => setItems((prev) => {
+                        const rest = prev.filter((item) => item.id !== next.id);
+                        return [next, ...rest];
+                    }))
+                    .catch(() => undefined);
+            });
         }, 4000);
         return () => window.clearInterval(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selected, selectedStatus]);
+    }, [pendingKey]);
+
+    useEffect(() => {
+        if (selectedItem?.status && selectedItem.status !== "completed") onChange({ soulId: "", soulStrength: strength || "1" });
+        // 已知未完成的 Soul ID 不能留在生成配置里。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selected, selectedItem?.status]);
 
     if (!isSoulImageModel(config.model)) return null;
 
@@ -71,8 +87,8 @@ export function CanvasSoulIdPanel({ config, theme, onChange }: CanvasSoulIdPanel
         try {
             const created = await createSoulId(config, { name: name.trim(), authorized: true, imageUrls });
             setItems((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
-            onChange({ soulId: created.id, soulStrength: strength || "1" });
-            setStatus(created.warning || `训练已开始：${soulStatusLabel(created.status)}`);
+            if (created.status === "completed") onChange({ soulId: created.id, soulStrength: strength || "1" });
+            setStatus(created.status === "completed" ? created.warning || "Soul ID 已可用" : created.warning || `训练已开始：${soulStatusLabel(created.status)}。完成后才能用于出图`);
         } catch (error) {
             setStatus(error instanceof Error ? error.message : "Soul ID 创建失败");
         } finally {
@@ -89,12 +105,16 @@ export function CanvasSoulIdPanel({ config, theme, onChange }: CanvasSoulIdPanel
                 <select
                     className="h-8 w-full rounded-md border bg-transparent px-2"
                     style={{ borderColor: theme.toolbar.border, color: theme.node.text }}
-                    value={selected}
-                    onChange={(event) => onChange({ soulId: event.target.value, soulStrength: strength })}
+                    value={selectedReady ? selected : ""}
+                    onChange={(event) => {
+                        const next = items.find((item) => item.id === event.target.value);
+                        if (next && next.status !== "completed") return;
+                        onChange({ soulId: event.target.value, soulStrength: strength });
+                    }}
                 >
                     <option value="">不固定人物</option>
                     {items.map((item) => (
-                        <option key={item.id} value={item.id}>
+                        <option key={item.id} value={item.id} disabled={item.status !== "completed"}>
                             {item.name || item.id} · {soulStatusLabel(item.status)}
                         </option>
                     ))}

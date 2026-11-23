@@ -7,11 +7,11 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## Soul 2.0 街拍穿搭与 Soul ID
 
-- 画布 Agent 技能列表应出现「Soul 2.0 街拍穿搭」。已有数据库不用重建：重启后端后会补上这条默认 Skill，已有 Skill 内容不会被覆盖。若在管理后台删除它，下次启动不会再自动加回。
+- 画布 Agent 技能列表应出现「Soul 2.0 街拍穿搭」。已有数据库不用重建：重启后端后会补上这条新 Skill，已改过的 Skill 正文不会被覆盖。升级前就已经不在库里的旧默认 Skill 不会被加回来。在管理后台删除默认 Skill 后，下次启动不会再自动加回。
 - 技能说明四步流水线和模式 A / B。模式 A 用文字出多个人物基底，选定后再换装。模式 B 必须先有状态为可用的 Soul ID，主图换装成功后，用换好的主图统一其余套图的衣服。
-- 图片设置在模型为 Soul 时显示 Soul ID：可列出已有角色、选择强度、用已授权照片或公网 URL 训练。未勾选授权不能提交。训练请求的 `model_version` 为 `v2`。
-- 选中的 Soul ID 会进入 Soul 2.0 文生图请求的 `custom_reference_id`。强度省略时为 1，不能为 0。请求里不会自行添加 `style_id`。
-- 换装节点使用 `edit_image` 且 `clothingSwap` 为 true。提交时改走已配置的 GPT Image 或其他图片编辑模型，并带上只换服装、保持人物头发姿态机位场景光线不变的说明。带 `clothing_swap` 的请求不会进入 `/higgsfield-ai/soul/v2/image-to-image`。
+- 图片设置在模型为 Soul 时显示 Soul ID：可列出已有角色、用已授权照片或公网 URL 训练。未勾选授权不能提交，也不会把照片传到 Higgsfield。训练请求的 `model_version` 为 `v2`。排队、训练中或失败的 Soul ID 不能选中，也不能拿去出图；训练完成后选项才会可用。
+- 只有状态为已完成的 Soul ID 会进入 Soul 2.0 文生图请求的 `custom_reference_id`。强度省略时为 1；填写 0、大于 1 或无法解析的值会直接报错，不会被改成 1。请求里不会自行添加 `style_id`。
+- 换装节点使用 `edit_image` 且 `clothingSwap` 为 true。提交时改走已配置的 GPT Image 或其他图片编辑模型，并带上只换服装、保持人物头发姿态机位场景光线不变的说明。没有编辑模型时会报错，不会进入 `/higgsfield-ai/soul/v2/image-to-image`。
 - 场景参考图仍走 Soul image-to-image。画幅吸附、1080p、`soul/v2` 的 `batch_size` 保持原样。
 - 换装后需要人工看剪裁、颜色、五金、印花和配饰。鞋、大印花、Logo 和细小配饰失败时用 Photoshop 修。
 

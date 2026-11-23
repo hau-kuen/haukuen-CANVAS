@@ -39,6 +39,11 @@ func HiggsfieldSoulIDs(w http.ResponseWriter, r *http.Request) {
 		Fail(w, "Soul ID 数据格式错误")
 		return
 	}
+	// 授权必须先于任何上传。未确认时不能把照片传到 Higgsfield CDN。
+	if !input.Authorized {
+		Fail(w, "训练 Soul ID 前必须确认照片中的人物已授权")
+		return
+	}
 	imageURLs, err := publicSoulImageURLs(input.ImageURLs, channel)
 	if err != nil {
 		Fail(w, err.Error())

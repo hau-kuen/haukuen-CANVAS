@@ -89,14 +89,7 @@ func DeleteCurrentUserAgentSkill(ctx context.Context, id string) error {
 }
 
 func DeleteSystemAgentSkill(id string) error {
-	id = strings.TrimSpace(id)
-	if err := repository.DeleteSystemAgentSkill(id); err != nil {
-		return err
-	}
-	if strings.HasPrefix(id, "agent-skill-default-") {
-		return repository.DismissDefaultAgentSkill(id, now())
-	}
-	return nil
+	return repository.DeleteSystemAgentSkill(strings.TrimSpace(id), now())
 }
 
 func saveAgentSkill(input model.AgentSkill, source string, ownerUserID string) (model.AgentSkill, error) {

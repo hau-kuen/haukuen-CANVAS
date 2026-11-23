@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -66,7 +67,7 @@ func normalizeHiggsfieldBody(body []byte, contentType string, modelName string, 
 			}
 		}
 	}
-	if err := applyHiggsfieldSoulReference(payload); err != nil {
+	if err := applyHiggsfieldSoulReference(payload, channel); err != nil {
 		return nil, "", false, err
 	}
 	// Higgsfield 端点在 URL 里，body 里这些 OpenAI 字段会被上游拒绝或忽略。
@@ -325,7 +326,7 @@ func higgsfieldUpstreamImagePath(modelName string, hasReference bool) string {
 	return "/" + name
 }
 
-func applyHiggsfieldSoulReference(payload map[string]any) error {
+func applyHiggsfieldSoulReference(payload map[string]any, channel model.ModelChannel) error {
 	id := higgsfieldStringValue(payload["custom_reference_id"])
 	if id == "" {
 		delete(payload, "custom_reference_id")
@@ -333,7 +334,7 @@ func applyHiggsfieldSoulReference(payload map[string]any) error {
 		return nil
 	}
 	if !service.SoulReferenceID(id) {
-		return errors.New("custom_reference_id 必须是已完成训练的 Soul ID")
+		return errors.New("custom_reference_id 必须是 Soul ID")
 	}
 	strength, ok, err := higgsfieldReferenceStrength(payload["custom_reference_strength"])
 	if err != nil {
@@ -344,6 +345,13 @@ func applyHiggsfieldSoulReference(payload map[string]any) error {
 	}
 	if strength <= 0 || strength > 1 {
 		return errors.New("custom_reference_strength 必须大于 0 且不超过 1")
+	}
+	item, err := service.GetSoulReference(context.Background(), channel, id)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(strings.TrimSpace(item.Status), "completed") {
+		return errors.New("Soul ID 尚未训练完成，不能用于出图")
 	}
 	payload["custom_reference_id"] = id
 	payload["custom_reference_strength"] = strength

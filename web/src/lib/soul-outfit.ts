@@ -12,7 +12,7 @@ export function isClothingEditModel(model: string) {
     const name = model.toLowerCase();
     if (!name || name.includes("video") || isSoulImageModel(name)) return false;
     if (name.includes("text-to-image") && !name.includes("image-to-image") && !name.includes("edit")) return false;
-    return name.includes("gpt-image") || name.includes("image-edit") || name.includes("image-to-image") || name.includes("/edit") || name.includes("nano-banana") || name.includes("flux") || (name.includes("seedream") && name.includes("edit"));
+    return name.includes("gpt-image") || name.includes("image-edit") || name.includes("image-to-image") || name.includes("/edit") || name.includes("nano-banana") || (name.includes("seedream") && name.includes("edit"));
 }
 
 export function findClothingEditTarget(config: AiConfig) {
@@ -40,9 +40,13 @@ export function soulReferenceFields(config: AiConfig): Record<string, string | n
     if (config.clothingSwap || !isSoulImageModel(config.model)) return {};
     const id = (config.soulId || "").trim();
     if (!id) return {};
-    const parsed = Number(config.soulStrength);
-    const strength = Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : 1;
-    return { custom_reference_id: id, custom_reference_strength: strength };
+    const raw = config.soulStrength;
+    if (raw == null) return { custom_reference_id: id, custom_reference_strength: 1 };
+    const text = String(raw).trim();
+    if (!text) throw new Error("Soul ID 强度必须大于 0 且不超过 1");
+    const parsed = Number(text);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) throw new Error("Soul ID 强度必须大于 0 且不超过 1");
+    return { custom_reference_id: id, custom_reference_strength: parsed };
 }
 
 export function higgsfieldChannel(config: AiConfig) {

@@ -9,6 +9,7 @@ const (
 	SettingKeyPrivate                       SettingKey = "private"
 	SettingKeyAgentSkillsInitialized        SettingKey = "agent-skills-initialized"
 	SettingKeyAgentSkillsDismissedDefaults  SettingKey = "agent-skills-dismissed-defaults"
+	SettingKeyAgentSkillsDefaultBaseline    SettingKey = "agent-skills-default-baseline"
 
 	StorageProviderTypeS3       = "s3"
 	StorageProviderTypeWebDAV   = "webdav"

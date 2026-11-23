@@ -120,6 +120,48 @@ func SelectUserLocalModelChannelForModel(userID string, modelName string, channe
 	return model.ModelChannel{}, errors.New("本地渠道不存在")
 }
 
+// SelectUserHiggsfieldChannel 读取用户已保存的 Higgsfield 本地渠道，沿用渠道里的 Key。
+func SelectUserHiggsfieldChannel(userID string, channelID string) (model.ModelChannel, error) {
+	userID = strings.TrimSpace(userID)
+	channelID = strings.TrimSpace(channelID)
+	if userID == "" {
+		return model.ModelChannel{}, safeMessageError{message: "请先登录"}
+	}
+	if channelID == "" {
+		return model.ModelChannel{}, safeMessageError{message: "缺少模型渠道"}
+	}
+	config, ok, err := repository.GetUserConfig(userID)
+	if err != nil {
+		return model.ModelChannel{}, err
+	}
+	if !ok || strings.TrimSpace(config.ModelConfig) == "" {
+		return model.ModelChannel{}, safeMessageError{message: "本地渠道不存在"}
+	}
+	var modelConfig userModelConfigInput
+	if err := json.Unmarshal([]byte(config.ModelConfig), &modelConfig); err != nil {
+		return model.ModelChannel{}, err
+	}
+	for _, channel := range modelConfig.LocalChannels {
+		if strings.TrimSpace(channel.ID) != channelID {
+			continue
+		}
+		protocol := strings.ToLower(strings.TrimSpace(channel.Protocol))
+		if protocol == "" {
+			protocol = "openai"
+		}
+		item := model.ModelChannel{
+			ID: channelID, Protocol: protocol, Name: firstVideoTaskValue(strings.TrimSpace(channel.Name), "本地直连"),
+			BaseURL: strings.TrimSpace(channel.BaseURL), APIKey: strings.TrimSpace(channel.APIKey),
+			Models: userLocalChannelModels(channel.Models), Weight: 1, Timeout: 600, Enabled: true,
+		}
+		if !higgsfieldChannelReady(item) {
+			return model.ModelChannel{}, safeMessageError{message: "请先保存完整的 Higgsfield 渠道密钥"}
+		}
+		return item, nil
+	}
+	return model.ModelChannel{}, safeMessageError{message: "本地渠道不存在"}
+}
+
 func userLocalChannelModels(models []string) []string {
 	result := make([]string, 0, len(models))
 	seen := map[string]bool{}

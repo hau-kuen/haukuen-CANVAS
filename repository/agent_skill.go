@@ -3,6 +3,7 @@ package repository
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/tigerowo/infinite-canvas/model"
 	"gorm.io/gorm"
@@ -113,6 +114,89 @@ func DeleteUserAgentSkill(id string, userID string) error {
 		return err
 	}
 	return db.Delete(&model.AgentSkill{}, "id = ? AND source = ? AND owner_user_id = ?", id, model.AgentSkillSourceUser, userID).Error
+}
+
+func InsertAgentSkillIfAbsent(item model.AgentSkill, files []model.AgentSkillFile) (bool, error) {
+	db, err := DB()
+	if err != nil {
+		return false, err
+	}
+	inserted := false
+	err = db.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&model.AgentSkill{}).Where("id = ?", item.ID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+		inserted = true
+		return saveAgentSkillPackage(tx, &item, files)
+	})
+	return inserted, err
+}
+
+func DismissedDefaultAgentSkillIDs() (map[string]struct{}, error) {
+	db, err := DB()
+	if err != nil {
+		return nil, err
+	}
+	var item model.Setting
+	err = db.Where(map[string]any{"key": model.SettingKeyAgentSkillsDismissedDefaults}).First(&item).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return map[string]struct{}{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	if err := json.Unmarshal(item.Value, &ids); err != nil {
+		return map[string]struct{}{}, nil
+	}
+	result := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			result[id] = struct{}{}
+		}
+	}
+	return result, nil
+}
+
+func DismissDefaultAgentSkill(id string, current string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		var item model.Setting
+		err := tx.Where(map[string]any{"key": model.SettingKeyAgentSkillsDismissedDefaults}).First(&item).Error
+		ids := []string{}
+		if err == nil {
+			_ = json.Unmarshal(item.Value, &ids)
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		for _, existing := range ids {
+			if existing == id {
+				return nil
+			}
+		}
+		ids = append(ids, id)
+		encoded, err := json.Marshal(ids)
+		if err != nil {
+			return err
+		}
+		setting := model.Setting{Key: model.SettingKeyAgentSkillsDismissedDefaults, Value: encoded, CreatedAt: current, UpdatedAt: current}
+		if item.CreatedAt != "" {
+			setting.CreatedAt = item.CreatedAt
+		}
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"})}).Create(&setting).Error
+	})
 }
 
 func DeleteSystemAgentSkill(id string) error {

@@ -80,6 +80,57 @@ func TestNormalizeHiggsfieldBody(t *testing.T) {
 	}
 }
 
+func TestNormalizeHiggsfieldSoulReferenceAndClothingSwap(t *testing.T) {
+	soulID := "11111111-1111-4111-8111-111111111111"
+	encoded, _, hasReference, err := normalizeHiggsfieldBody([]byte(`{"prompt":"person","custom_reference_id":"`+soulID+`","size":"864x1152"}`), "application/json", "higgsfield-ai/soul/v2/standard", model.ModelChannel{Protocol: "higgsfield"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	_ = json.Unmarshal(encoded, &got)
+	if got["custom_reference_id"] != soulID || got["custom_reference_strength"] != 1.0 {
+		t.Fatalf("soul reference = %#v", got)
+	}
+	if _, ok := got["style_id"]; ok || hasReference {
+		t.Fatalf("invented style or reference: %#v hasReference=%v", got, hasReference)
+	}
+
+	encoded, _, _, err = normalizeHiggsfieldBody([]byte(`{"prompt":"person","custom_reference_id":"`+soulID+`","custom_reference_strength":0.4}`), "application/json", "higgsfield-ai/soul/v2/standard", model.ModelChannel{Protocol: "higgsfield"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(encoded, &got)
+	if got["custom_reference_strength"] != 0.4 {
+		t.Fatalf("strength = %v", got["custom_reference_strength"])
+	}
+
+	for _, body := range []string{
+		`{"prompt":"person","custom_reference_id":"` + soulID + `","custom_reference_strength":0}`,
+		`{"prompt":"person","custom_reference_id":"` + soulID + `","custom_reference_strength":1.2}`,
+		`{"prompt":"swap","clothing_swap":true,"image":"https://example.com/garment.jpg"}`,
+		`{"prompt":"swap","reference_role":"garment","image_url":"https://example.com/garment.jpg"}`,
+	} {
+		_, _, hasReference, err = normalizeHiggsfieldBody([]byte(body), "application/json", "higgsfield-ai/soul/v2/standard", model.ModelChannel{Protocol: "higgsfield"})
+		if err == nil || hasReference {
+			t.Fatalf("body %s err=%v hasReference=%v", body, err, hasReference)
+		}
+	}
+
+	_, contentType, hasReference, err := normalizeHiggsfieldBody([]byte(`{"prompt":"scene","image":"https://example.com/scene.jpg"}`), "application/json", "higgsfield-ai/soul/v2/standard", model.ModelChannel{Protocol: "higgsfield"})
+	if err != nil || !hasReference || contentType != "application/json" {
+		t.Fatalf("scene reference err=%v hasReference=%v", err, hasReference)
+	}
+	if higgsfieldUpstreamImagePath("higgsfield-ai/soul/v2/standard", true) != "/higgsfield-ai/soul/v2/image-to-image" {
+		t.Fatal("scene reference should stay on soul image-to-image")
+	}
+	if higgsfieldUpstreamImagePath("higgsfield-ai/soul/v2/standard", false) != "/higgsfield-ai/soul/v2/standard" {
+		t.Fatal("text generation should stay on soul standard")
+	}
+	if higgsfieldUpstreamImagePath("higgsfield-ai/soul/standard", true) != "/higgsfield-ai/soul/standard" {
+		t.Fatal("non-v2 reference path changed")
+	}
+}
+
 func TestIsGenericBinaryMIME(t *testing.T) {
 	cases := []struct {
 		in   string

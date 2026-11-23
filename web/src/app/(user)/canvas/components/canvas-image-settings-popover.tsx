@@ -6,6 +6,7 @@ import { Settings2 } from "lucide-react";
 import { Button } from "antd";
 
 import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
+import { CanvasSoulIdPanel } from "./canvas-soul-id-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isKIESeedreamLayerDecompositionModel } from "@/lib/kie-models";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -141,6 +142,14 @@ function ImageSettingsPortal({
             onClick={(event) => event.stopPropagation()}
         >
             <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" showSize={showSize} showCount={showCount} />
+            <CanvasSoulIdPanel
+                config={config}
+                theme={theme}
+                onChange={(patch) => {
+                    if (patch.soulId !== undefined) onConfigChange("soulId", patch.soulId);
+                    if (patch.soulStrength !== undefined) onConfigChange("soulStrength", patch.soulStrength);
+                }}
+            />
         </div>,
         document.body,
     );

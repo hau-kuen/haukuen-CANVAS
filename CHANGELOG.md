@@ -2,6 +2,9 @@
 
 ## Unreleased
 
++ [新增] Soul 2.0 街拍穿搭流水线：先用文字定穿搭，再用 Soul 2.0 生成人物与场景，服装替换走图片编辑模型
++ [新增] Soul ID：沿用 Higgsfield 渠道密钥创建（model_version 固定 v2）、轮询、列出，并在 Soul 2.0 生成时传入 custom_reference_id 与强度
++ [新增] 已有数据库启动时补齐新增的默认 Agent Skill，不覆盖已导入内容；管理员删除过的默认 Skill 不会被自动加回
 + [新增] Agent 与 Codex MCP 支持视频读取分析
 + [新增] SD 2.5 样片生成与生成正片，支持自定传参转译
 + [新增] Agent 支持查看和保存会话上下文用量

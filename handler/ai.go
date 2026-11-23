@@ -180,7 +180,7 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 	if err != nil {
 		log.Printf("AI proxy normalize %s request failed: model=%s err=%v", prepared.failureLabel, modelName, err)
 		message := "AI 接口请求失败"
-		if prepared.failureLabel == "MiMo TTS" || prepared.failureLabel == "MiniMax TTS" || prepared.failureLabel == "AutoDL" {
+		if prepared.failureLabel == "MiMo TTS" || prepared.failureLabel == "MiniMax TTS" || prepared.failureLabel == "AutoDL" || prepared.failureLabel == "Higgsfield image" {
 			message = err.Error()
 		}
 		Fail(w, message)

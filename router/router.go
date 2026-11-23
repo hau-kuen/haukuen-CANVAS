@@ -86,6 +86,11 @@ func New() *gin.Engine {
 	v1.DELETE("/workflows/:id", func(c *gin.Context) {
 		handler.DeleteUserWorkflow(c.Writer, c.Request, c.Param("id"))
 	})
+	v1.GET("/higgsfield/soul-ids", gin.WrapF(handler.HiggsfieldSoulIDs))
+	v1.POST("/higgsfield/soul-ids", gin.WrapF(handler.HiggsfieldSoulIDs))
+	v1.GET("/higgsfield/soul-ids/:id", func(c *gin.Context) {
+		handler.HiggsfieldSoulID(c.Writer, c.Request, c.Param("id"))
+	})
 	v1.GET("/agent-skills", gin.WrapF(handler.UserAgentSkills))
 	v1.POST("/agent-skills", gin.WrapF(handler.SaveUserAgentSkill))
 	v1.DELETE("/agent-skills/:id", func(c *gin.Context) {

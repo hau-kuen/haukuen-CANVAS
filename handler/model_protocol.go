@@ -90,7 +90,7 @@ var builtinAIProtocols = []aiProtocolAdapter{
 			}
 			return path, true
 		},
-		prepare: prepareAutoDLRequest,
+		prepare:      prepareAutoDLRequest,
 		copyResponse: copyAutoDLResponse,
 		videoResponse: func(payload []byte, _ *http.Request, channel model.ModelChannel, _ string, _ bool) ([]byte, bool) {
 			if !service.IsAutoDLChannel(channel) {
@@ -378,12 +378,9 @@ var builtinAIProtocols = []aiProtocolAdapter{
 			if err != nil {
 				return input, true, err
 			}
-			// 带参考图时路由到 image-to-image 端点，否则 standard 文生图
-			if hasReference {
-				name := strings.TrimPrefix(strings.TrimSpace(input.modelName), "/")
-				if strings.Contains(strings.ToLower(name), "soul/v2") {
-					input.path = "/higgsfield-ai/soul/v2/image-to-image"
-				}
+			// 带场景参考图时才路由到 image-to-image。换装请求在 normalize 阶段直接拒绝，不会进到这里。
+			if path := higgsfieldUpstreamImagePath(input.modelName, hasReference); hasReference && path != "" {
+				input.path = path
 			}
 			return input, true, nil
 		},

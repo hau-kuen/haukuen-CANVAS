@@ -5,6 +5,18 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+## Soul 2.0 街拍穿搭与 Soul ID
+
+- 画布 Agent 技能列表应出现「Soul 2.0 街拍穿搭」。已有数据库不用重建：重启后端后会补上这条默认 Skill，已有 Skill 内容不会被覆盖。若在管理后台删除它，下次启动不会再自动加回。
+- 技能说明四步流水线和模式 A / B。模式 A 用文字出多个人物基底，选定后再换装。模式 B 必须先有状态为可用的 Soul ID，主图换装成功后，用换好的主图统一其余套图的衣服。
+- 图片设置在模型为 Soul 时显示 Soul ID：可列出已有角色、选择强度、用已授权照片或公网 URL 训练。未勾选授权不能提交。训练请求的 `model_version` 为 `v2`。
+- 选中的 Soul ID 会进入 Soul 2.0 文生图请求的 `custom_reference_id`。强度省略时为 1，不能为 0。请求里不会自行添加 `style_id`。
+- 换装节点使用 `edit_image` 且 `clothingSwap` 为 true。提交时改走已配置的 GPT Image 或其他图片编辑模型，并带上只换服装、保持人物头发姿态机位场景光线不变的说明。带 `clothing_swap` 的请求不会进入 `/higgsfield-ai/soul/v2/image-to-image`。
+- 场景参考图仍走 Soul image-to-image。画幅吸附、1080p、`soul/v2` 的 `batch_size` 保持原样。
+- 换装后需要人工看剪裁、颜色、五金、印花和配饰。鞋、大印花、Logo 和细小配饰失败时用 Photoshop 修。
+
+不需要在 CI 里消耗 Higgsfield 额度。请求形状、路由和 Soul ID 载荷有单元测试。
+
 ## Soul 2.0 出图质量修正
 
 - 提交 Higgsfield 时固定带上 `resolution`：默认 `1080p`，只有请求里 quality 为 `low/720p/1.5k/fast/draft` 才降到 `720p`。此前不传该字段，上游按最低档出图，同样的提示词画面尺寸只有 1152×1536，笔画发糊。

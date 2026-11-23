@@ -2,6 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/tigerowo/infinite-canvas/model"
@@ -78,6 +82,90 @@ func TestNormalizeHiggsfieldBody(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestNormalizeHiggsfieldSoulReferenceAndClothingSwap(t *testing.T) {
+	soulID := "11111111-1111-4111-8111-111111111111"
+	completed := higgsfieldSoulStatusChannel(t, "completed")
+	encoded, _, hasReference, err := normalizeHiggsfieldBody([]byte(`{"prompt":"person","custom_reference_id":"`+soulID+`","size":"864x1152","n":4}`), "application/json", "higgsfield-ai/soul/v2/standard", completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	_ = json.Unmarshal(encoded, &got)
+	if got["custom_reference_id"] != soulID || got["custom_reference_strength"] != 1.0 {
+		t.Fatalf("soul reference = %#v", got)
+	}
+	if got["aspect_ratio"] != "3:4" || got["resolution"] != "1080p" || got["batch_size"] != 4.0 {
+		t.Fatalf("quality fields = %#v", got)
+	}
+	if _, ok := got["style_id"]; ok || hasReference {
+		t.Fatalf("invented style or reference: %#v hasReference=%v", got, hasReference)
+	}
+
+	for _, item := range []struct {
+		body     string
+		strength float64
+	}{
+		{`{"prompt":"person","custom_reference_id":"` + soulID + `","custom_reference_strength":0.4}`, 0.4},
+		{`{"prompt":"person","custom_reference_id":"` + soulID + `","custom_reference_strength":"0.4"}`, 0.4},
+		{`{"prompt":"person","custom_reference_id":"` + soulID + `","custom_reference_strength":1}`, 1},
+	} {
+		encoded, _, _, err = normalizeHiggsfieldBody([]byte(item.body), "application/json", "higgsfield-ai/soul/v2/standard", completed)
+		if err != nil {
+			t.Fatal(item.body, err)
+		}
+		_ = json.Unmarshal(encoded, &got)
+		if got["custom_reference_strength"] != item.strength {
+			t.Fatalf("strength = %v, want %v (%s)", got["custom_reference_strength"], item.strength, item.body)
+		}
+	}
+
+	queued := higgsfieldSoulStatusChannel(t, "queued")
+	_, _, hasReference, err = normalizeHiggsfieldBody([]byte(`{"prompt":"person","custom_reference_id":"`+soulID+`"}`), "application/json", "higgsfield-ai/soul/v2/standard", queued)
+	if err == nil || hasReference || !strings.Contains(err.Error(), "尚未训练完成") {
+		t.Fatalf("queued soul id err=%v hasReference=%v", err, hasReference)
+	}
+
+	for _, body := range []string{
+		`{"prompt":"person","custom_reference_id":"` + soulID + `","custom_reference_strength":0}`,
+		`{"prompt":"person","custom_reference_id":"` + soulID + `","custom_reference_strength":1.2}`,
+		`{"prompt":"swap","clothing_swap":true,"image":"https://example.com/garment.jpg"}`,
+		`{"prompt":"swap","reference_role":"garment","image_url":"https://example.com/garment.jpg"}`,
+	} {
+		_, _, hasReference, err = normalizeHiggsfieldBody([]byte(body), "application/json", "higgsfield-ai/soul/v2/standard", model.ModelChannel{Protocol: "higgsfield"})
+		if err == nil || hasReference {
+			t.Fatalf("body %s err=%v hasReference=%v", body, err, hasReference)
+		}
+	}
+
+	_, contentType, hasReference, err := normalizeHiggsfieldBody([]byte(`{"prompt":"scene","image":"https://example.com/scene.jpg"}`), "application/json", "higgsfield-ai/soul/v2/standard", model.ModelChannel{Protocol: "higgsfield"})
+	if err != nil || !hasReference || contentType != "application/json" {
+		t.Fatalf("scene reference err=%v hasReference=%v", err, hasReference)
+	}
+	if higgsfieldUpstreamImagePath("higgsfield-ai/soul/v2/standard", true) != "/higgsfield-ai/soul/v2/image-to-image" {
+		t.Fatal("scene reference should stay on soul image-to-image")
+	}
+	if higgsfieldUpstreamImagePath("higgsfield-ai/soul/v2/standard", false) != "/higgsfield-ai/soul/v2/standard" {
+		t.Fatal("text generation should stay on soul standard")
+	}
+	if higgsfieldUpstreamImagePath("higgsfield-ai/soul/standard", true) != "/higgsfield-ai/soul/standard" {
+		t.Fatal("non-v2 reference path changed")
+	}
+}
+
+func higgsfieldSoulStatusChannel(t *testing.T, status string) model.ModelChannel {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/custom-references/") || r.URL.Path == "/v1/custom-references/list" {
+			t.Errorf("unexpected soul status path %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, `{"id":%q,"status":%q}`, strings.TrimPrefix(r.URL.Path, "/v1/custom-references/"), status)
+	}))
+	t.Cleanup(server.Close)
+	return model.ModelChannel{Protocol: "higgsfield", BaseURL: server.URL, APIKey: "key-id:key-secret", Timeout: 5, Enabled: true}
 }
 
 func TestIsGenericBinaryMIME(t *testing.T) {

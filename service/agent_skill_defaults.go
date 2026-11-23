@@ -31,39 +31,137 @@ type defaultAgentSkillPackage struct {
 	Files       []model.AgentSkillFile
 }
 
-// EnsureDefaultAgentSkills 只在数据库首次初始化时导入 service/skills 中的默认 Skill 包。
+// 这一版新增的默认 Skill。升级基线只补它；当时已经不在库里的旧默认 Skill 视为用户删过，不再自动加回。
+const newlyAddedDefaultAgentSkillRoot = "skills/soul-street-outfit.md"
+
+// EnsureDefaultAgentSkills 在数据库首次初始化时导入全部默认 Skill。
+// 之后每次启动只补齐新增加的默认 Skill，不覆盖已有内容，也不恢复升级前已经缺失的旧默认 Skill。
 func EnsureDefaultAgentSkills() error {
 	initialized, err := repository.AgentSkillsInitialized()
-	if err != nil || initialized {
+	if err != nil {
+		return err
+	}
+	if !initialized {
+		existing, err := repository.ListSystemAgentSkills()
+		if err != nil {
+			return err
+		}
+		if len(existing) > 0 {
+			if err := repository.MarkAgentSkillsInitialized(now()); err != nil {
+				return err
+			}
+		} else if err := importDefaultAgentSkills(); err != nil {
+			return err
+		}
+	}
+	return syncMissingDefaultAgentSkills()
+}
+
+func importDefaultAgentSkills() error {
+	packages, err := readDefaultAgentSkillPackages()
+	if err != nil {
+		return err
+	}
+	current := now()
+	items := make([]model.AgentSkill, 0, len(packages))
+	fileGroups := make([][]model.AgentSkillFile, 0, len(packages))
+	for index, item := range packages {
+		skill, files, err := newDefaultAgentSkill(item, index, current)
+		if err != nil {
+			return err
+		}
+		items = append(items, skill)
+		fileGroups = append(fileGroups, files)
+	}
+	return repository.InitializeAgentSkills(items, fileGroups, current)
+}
+
+func syncMissingDefaultAgentSkills() error {
+	packages, err := readDefaultAgentSkillPackages()
+	if err != nil {
 		return err
 	}
 	existing, err := repository.ListSystemAgentSkills()
 	if err != nil {
 		return err
 	}
-	current := now()
-	if len(existing) > 0 {
-		return repository.MarkAgentSkillsInitialized(current)
+	present := make(map[string]struct{}, len(existing))
+	for _, item := range existing {
+		present[item.ID] = struct{}{}
 	}
-	packages, err := readDefaultAgentSkillPackages()
+	baselined, err := repository.DefaultAgentSkillBaselineRecorded()
 	if err != nil {
 		return err
 	}
-	items := make([]model.AgentSkill, 0, len(packages))
-	fileGroups := make([][]model.AgentSkillFile, 0, len(packages))
+	if !baselined {
+		if err := baselineMissingLegacyDefaultAgentSkills(packages, present); err != nil {
+			return err
+		}
+	}
+	dismissed, err := repository.DismissedDefaultAgentSkillIDs()
+	if err != nil {
+		return err
+	}
+	current := now()
+	missing := map[string]struct{}{}
+	for _, item := range missingDefaultAgentSkillPackages(packages, present, dismissed) {
+		missing[item.Root] = struct{}{}
+	}
 	for index, item := range packages {
-		id := defaultAgentSkillID(item.Root)
-		files, err := normalizeAgentSkillFiles(id, item.Files, current)
+		if _, ok := missing[item.Root]; !ok {
+			continue
+		}
+		skill, files, err := newDefaultAgentSkill(item, index, current)
 		if err != nil {
 			return err
 		}
-		items = append(items, model.AgentSkill{
-			ID: id, Source: model.AgentSkillSourceSystem, Name: item.Name, Description: item.Description,
-			Content: item.Content, Enabled: true, Sort: index, CreatedAt: current, UpdatedAt: current,
-		})
-		fileGroups = append(fileGroups, files)
+		if _, err := repository.InsertAgentSkillIfAbsent(skill, files); err != nil {
+			return err
+		}
 	}
-	return repository.InitializeAgentSkills(items, fileGroups, current)
+	return nil
+}
+
+func newDefaultAgentSkill(item defaultAgentSkillPackage, sort int, current string) (model.AgentSkill, []model.AgentSkillFile, error) {
+	id := defaultAgentSkillID(item.Root)
+	files, err := normalizeAgentSkillFiles(id, item.Files, current)
+	if err != nil {
+		return model.AgentSkill{}, nil, err
+	}
+	return model.AgentSkill{
+		ID: id, Source: model.AgentSkillSourceSystem, Name: item.Name, Description: item.Description,
+		Content: item.Content, Enabled: true, Sort: sort, CreatedAt: current, UpdatedAt: current,
+	}, files, nil
+}
+
+func baselineMissingLegacyDefaultAgentSkills(packages []defaultAgentSkillPackage, present map[string]struct{}) error {
+	ids := make([]string, 0)
+	for _, item := range packages {
+		if item.Root == newlyAddedDefaultAgentSkillRoot {
+			continue
+		}
+		id := defaultAgentSkillID(item.Root)
+		if _, ok := present[id]; ok {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return repository.RecordDefaultAgentSkillBaseline(ids, now())
+}
+
+func missingDefaultAgentSkillPackages(packages []defaultAgentSkillPackage, present map[string]struct{}, dismissed map[string]struct{}) []defaultAgentSkillPackage {
+	missing := make([]defaultAgentSkillPackage, 0)
+	for _, item := range packages {
+		id := defaultAgentSkillID(item.Root)
+		if _, ok := present[id]; ok {
+			continue
+		}
+		if _, ok := dismissed[id]; ok {
+			continue
+		}
+		missing = append(missing, item)
+	}
+	return missing
 }
 
 func readDefaultAgentSkillPackages() ([]defaultAgentSkillPackage, error) {

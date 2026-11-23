@@ -82,6 +82,9 @@ export type AiConfig = {
     videoSize: string;
     count: string;
     canvasImageCount: string;
+    soulId?: string;
+    soulStrength?: string;
+    clothingSwap?: boolean;
     nodeRegenerateBehavior: "new-node" | "overwrite";
     timeout: string;
     apiMode: string;
@@ -160,6 +163,8 @@ export const defaultConfig: AiConfig = {
     videoSize: "1280x720",
     count: "1",
     canvasImageCount: "1",
+    soulId: "",
+    soulStrength: "1",
     nodeRegenerateBehavior: "new-node",
     timeout: "600",
     apiMode: "images",

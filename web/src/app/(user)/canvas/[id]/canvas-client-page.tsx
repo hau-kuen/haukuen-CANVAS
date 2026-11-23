@@ -46,6 +46,7 @@ import { isGrok2APITtsConfig } from "@/lib/grok-tts";
 import { isGeminiConfig, isGeminiTtsModel } from "@/lib/gemini";
 import { isMiniMaxTtsConfig } from "@/lib/minimax-tts";
 import { isKIESeedreamLayerDecompositionModel } from "@/lib/kie-models";
+import { findClothingEditTarget, prepareOutfitImageRequest } from "@/lib/soul-outfit";
 import { IMAGE_MASK_EDIT_PROMPT_PREFIX } from "@/lib/image-reference-prompt";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
 import { ActiveConnectionPath, ConnectionPath } from "../components/canvas-connections";
@@ -2382,6 +2383,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 if (typeof safePatch.size === "string" && safePatch.size) configPatch.size = safePatch.size;
                 if (typeof safePatch.quality === "string" && safePatch.quality) configPatch.quality = safePatch.quality;
                 if (safePatch.count !== undefined && safePatch.count !== null && String(safePatch.count).trim()) configPatch.canvasImageCount = String(safePatch.count);
+                if (typeof safePatch.soulId === "string") configPatch.soulId = safePatch.soulId;
+                if (typeof safePatch.soulStrength === "string" && safePatch.soulStrength) configPatch.soulStrength = safePatch.soulStrength;
             } else {
                 if (typeof safePatch.vquality === "string" && safePatch.vquality) configPatch.vquality = safePatch.vquality;
                 if (typeof safePatch.videoSize === "string" && safePatch.videoSize) configPatch.videoSize = safePatch.videoSize;
@@ -3429,7 +3432,26 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 }
 
                 if (mode === "image") {
-                    const count = !workflowRef && isKIESeedreamLayerDecompositionModel(generationConfig.model) ? 1 : getGenerationCount(generationConfig.count);
+                    let generationConfigForImage = generationConfig;
+                    let requestPromptForImage = requestPrompt;
+                    if (sourceNode?.metadata?.clothingSwap) {
+                        try {
+                            const prepared = prepareOutfitImageRequest({ ...generationConfig, clothingSwap: true }, requestPrompt);
+                            if (!isAiConfigReady(prepared.config, prepared.config.model)) {
+                                throw new Error("换装需要已配置的图片编辑模型（例如 GPT Image），不能提交到 Soul image-to-image");
+                            }
+                            generationConfigForImage = prepared.config;
+                            requestPromptForImage = prepared.prompt;
+                        } catch (error) {
+                            const errorDetails = error instanceof Error ? error.message : "换装失败";
+                            message.error(errorDetails);
+                            setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node)));
+                            return;
+                        }
+                    }
+                    const generationConfigImage = generationConfigForImage;
+                    const imageWorkflowRef = sourceNode?.metadata?.clothingSwap ? undefined : workflowRef;
+                    const count = !imageWorkflowRef && isKIESeedreamLayerDecompositionModel(generationConfigImage.model) ? 1 : getGenerationCount(generationConfigImage.count);
                     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
                     const isImageNode = sourceNode?.type === CanvasNodeType.Image;
                     const isEmptyImageNode = isImageNode && (overwriteExisting || !sourceNode?.metadata?.content);
@@ -3440,11 +3462,12 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                             ? [{ id: sourceNode.id, name: `image-${sourceNode.id}.png`, type: sourceNode.metadata.mimeType || "image/png", dataUrl: sourceNode.metadata.content, storageKey: sourceNode.metadata.storageKey }]
                             : [];
                     const referenceImages = [...generationContext.referenceImages, ...sourceReference];
-                    const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
-                    const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages);
+                    const generationType = referenceImages.length || sourceNode?.metadata?.clothingSwap ? ("edit" as const) : ("generation" as const);
+                    const generationMetadata = buildImageGenerationMetadata(generationType, generationConfigImage, count, referenceImages);
+                    if (sourceNode?.metadata?.clothingSwap) generationMetadata.clothingSwap = true;
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
                     const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
-                    const imageSize = nodeSizeFromRatio(generationConfig.size, imageConfig.width, imageConfig.height) || imageConfig;
+                    const imageSize = nodeSizeFromRatio(generationConfigImage.size, imageConfig.width, imageConfig.height) || imageConfig;
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
                     const gap = 96;
                     const rowGap = 36;
@@ -3472,14 +3495,14 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                             startedAt: generationStartedAt,
                             progress: 0,
                             clientTaskId: createBatchRoot ? undefined : targetTaskIds[rootId],
-                            imageTaskId: workflowRef && createBatchRoot ? undefined : primaryTargetId ? targetTaskIds[primaryTargetId] : undefined,
+                            imageTaskId: imageWorkflowRef && createBatchRoot ? undefined : primaryTargetId ? targetTaskIds[primaryTargetId] : undefined,
                             primaryImageId: createBatchRoot ? primaryTargetId : undefined,
                             isBatchRoot: createBatchRoot,
                             batchChildIds: createBatchRoot ? childIds : undefined,
                             ...(batchRoot ? { batchRootId: batchRoot.id } : {}),
                             batchUsesReferenceImages: referenceImages.length > 0,
                             ...generationMetadata,
-                            workflowRef,
+                            workflowRef: imageWorkflowRef,
                             imageBatchExpanded: createBatchRoot ? true : undefined,
                         },
                     };
@@ -3493,7 +3516,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                         },
                         width: imageSize.width,
                         height: imageSize.height,
-                        metadata: { prompt: effectivePrompt, cameraControl: sourceNode?.metadata?.cameraControl, status: NODE_STATUS_LOADING, startedAt: generationStartedAt, progress: 0, clientTaskId: targetTaskIds[id], imageTaskId: targetTaskIds[id], batchRootId: batchRoot?.id || (createBatchRoot ? rootId : undefined), ...generationMetadata, workflowRef },
+                        metadata: { prompt: effectivePrompt, cameraControl: sourceNode?.metadata?.cameraControl, status: NODE_STATUS_LOADING, startedAt: generationStartedAt, progress: 0, clientTaskId: targetTaskIds[id], imageTaskId: targetTaskIds[id], batchRootId: batchRoot?.id || (createBatchRoot ? rootId : undefined), ...generationMetadata, workflowRef: imageWorkflowRef },
                     }));
                     const batchConnections = [...(isEmptyImageNode ? [] : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]), ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: displayRootId, toNodeId: childId }))];
 
@@ -3516,8 +3539,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                                                 && [NODE_STATUS_LOADING, "stopping"].includes(node.metadata.status || "")) ? {
                                             content: undefined, storageKey: "", status: NODE_STATUS_LOADING,
                                             errorDetails: undefined, clientTaskId: undefined,
-                                            imageTaskId: workflowRef ? undefined : targetTaskIds[nodeId],
-                                            imageTaskResultId: undefined, workflowRef,
+                                            imageTaskId: imageWorkflowRef ? undefined : targetTaskIds[nodeId],
+                                            imageTaskResultId: undefined, workflowRef: imageWorkflowRef,
                                             startedAt: generationStartedAt, durationMs: undefined, progress: 0,
                                         } : {}),
                                     },
@@ -3567,9 +3590,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     const taskResults = await Promise.all(
                         targetIds.map(async (targetId) => {
                             try {
-                                const task = await submitNodeTask(targetId, targetTaskIds[targetId], async (signal, onServerTask) => workflowRef
-                                    ? await workflowImageTask(await submitCanvasWorkflowTask(workflowRef, generationConfig, "image", requestPrompt, referenceImages, [], [], targetId, projectId, targetTaskIds[targetId], () => onServerTask("workflow"), signal))
-                                    : await createCanvasImageTask({ ...generationConfig, count: "1" }, requestPrompt, referenceImages, { signal, onServerTask, nodeId: targetId, sourceId: projectId, clientTaskId: targetTaskIds[targetId] }), overwriteExisting && targetId === nodeId ? runningRequest : undefined);
+                                const task = await submitNodeTask(targetId, targetTaskIds[targetId], async (signal, onServerTask) => imageWorkflowRef
+                                    ? await workflowImageTask(await submitCanvasWorkflowTask(imageWorkflowRef, generationConfigImage, "image", requestPromptForImage, referenceImages, [], [], targetId, projectId, targetTaskIds[targetId], () => onServerTask("workflow"), signal))
+                                    : await createCanvasImageTask({ ...generationConfigImage, count: "1", clothingSwap: sourceNode?.metadata?.clothingSwap }, requestPromptForImage, referenceImages, { signal, onServerTask, nodeId: targetId, sourceId: projectId, clientTaskId: targetTaskIds[targetId] }), overwriteExisting && targetId === nodeId ? runningRequest : undefined);
                                 if (!isNodeTaskActive(targetId, targetTaskIds[targetId])) return true;
                                 if (task.image_url || task.url) {
                                     setNodes((prev) => {
@@ -3607,7 +3630,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                             } catch (error) {
                                 if (!isNodeTaskActive(targetId, targetTaskIds[targetId])) return true;
                                 const errorDetails = error instanceof Error ? error.message : "生成失败";
-                                setNodes((prev) => workflowRef
+                                setNodes((prev) => imageWorkflowRef
                                     ? applyCanvasImageTaskUpdate(prev, targetId, { id: targetTaskIds[targetId], source: "workflow", status: "failed", error: { message: errorDetails } }, generationStartedAt, { width: imageSize.width, height: imageSize.height })
                                     : prev.map((node) => (node.id === targetId || (node.id === batchRoot?.id && node.metadata?.primaryImageId === targetId && node.metadata.imageTaskId === targetTaskIds[targetId]) ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node)));
                                 return false;
@@ -3932,6 +3955,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                         audioLanguage: grokTts ? agentEffectiveConfig.grokTtsLanguage : "",
                         audioFormat: miniMaxTts ? agentEffectiveConfig.miniMaxTtsFormat : isGlmTtsModel(audioModel) ? agentEffectiveConfig.glmTtsFormat : grokTts ? agentEffectiveConfig.grokTtsFormat : agentEffectiveConfig.audioFormat,
                         audioSpeed: miniMaxTts ? agentEffectiveConfig.miniMaxTtsSpeed : isGlmTtsModel(audioModel) ? agentEffectiveConfig.glmTtsSpeed : grokTts ? agentEffectiveConfig.grokTtsSpeed : agentEffectiveConfig.audioSpeed,
+                        soulId: agentEffectiveConfig.soulId || "",
+                        soulStrength: agentEffectiveConfig.soulStrength || "1",
+                        clothingEditModel: findClothingEditTarget(agentEffectiveConfig)?.model || "",
                     };
                 }
 
@@ -4144,6 +4170,10 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     if (mode === "image") {
                         metadata.quality = generationConfig.quality;
                         metadata.count = typeof args.count === "number" ? Math.max(1, Math.floor(args.count)) : 1;
+                        metadata.soulId = typeof args.soulId === "string" ? args.soulId : "";
+                        if (typeof args.soulStrength === "number") metadata.soulStrength = String(args.soulStrength);
+                        else if (metadata.soulId) metadata.soulStrength = agentEffectiveConfig.soulStrength || "1";
+                        if (args.clothingSwap === true) metadata.clothingSwap = true;
                     }
                     if (mode === "video") {
                         metadata.vquality = generationConfig.vquality;
@@ -4261,6 +4291,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                         quality: savedImageMetadata.quality || effectiveConfig.quality,
                         size: isPanorama ? PANORAMA_IMAGE_SIZE : savedImageMetadata.size || effectiveConfig.size,
                         count: "1",
+                        soulId: savedImageMetadata.soulId || "",
+                        soulStrength: savedImageMetadata.soulStrength || effectiveConfig.soulStrength || "1",
+                        clothingSwap: savedImageMetadata.clothingSwap,
                     }
                     : { ...buildGenerationConfig(effectiveConfig, sourceNode, node.type === CanvasNodeType.Text ? "text" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : "image"), count: "1" };
             if (retryWorkflowRef && !useUserStore.getState().token) {
@@ -5612,6 +5645,9 @@ function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: A
         size: config.size,
         quality: config.quality,
         count,
+        soulId: config.soulId || undefined,
+        soulStrength: config.soulStrength || undefined,
+        clothingSwap: config.clothingSwap || undefined,
         references: references.map(referenceUrl).filter((url): url is string => Boolean(url)),
     };
 }
@@ -6246,6 +6282,9 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         audioChannelId,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         size: isPanoramaNodeType(node?.type) ? PANORAMA_IMAGE_SIZE : node?.metadata?.size || (mode === "video" ? config.videoSize || defaultConfig.videoSize : config.size || defaultConfig.size),
+        soulId: node?.metadata && Object.prototype.hasOwnProperty.call(node.metadata, "soulId") ? node.metadata.soulId || "" : config.soulId || "",
+        soulStrength: node?.metadata?.soulStrength || config.soulStrength || "1",
+        clothingSwap: node?.metadata?.clothingSwap,
         videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
         vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
         videoMode: node?.metadata?.mode || config.videoMode || defaultConfig.videoMode,

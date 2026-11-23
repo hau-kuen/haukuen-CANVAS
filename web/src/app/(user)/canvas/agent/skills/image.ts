@@ -53,6 +53,7 @@ Soul 2.0（Higgsfield）专用：
 - 不写品牌名、型号、真实 Logo，会触发 ip 审核或生成乱码 Logo；要干净表面就写「unbranded, unmarked」。
 - 不堆「8K / ultra detailed / masterpiece / stunning」。画幅只能是 1:1、4:3、3:4、3:2、2:3、16:9、9:16；清晰度由后端固定提交 1080p，提示词里不要写分辨率。
 - 多张变体逐张换光位/机位/影调，同一段提示词重复生成只会得到近似复制品。
+- 街拍换装走系统 Skill「Soul 2.0 街拍穿搭」。服装替换必须使用 edit_image，且 clothingSwap 为 true，由图片编辑模型处理。不要把服装图交给 Soul image-to-image。模式 B 先确认 Soul ID 已完成，再用 generate_image 的 soulId 固定人物；模式 A 不要传 soulId。
 
 ## 4. 视频项目的锚点优先级
 

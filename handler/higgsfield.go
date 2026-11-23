@@ -2,8 +2,10 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -28,6 +30,10 @@ func normalizeHiggsfieldBody(body []byte, contentType string, modelName string, 
 	payload, hasReference, err := higgsfieldPayload(body, contentType, channel)
 	if err != nil || payload == nil {
 		return body, contentType, false, err
+	}
+	// 换装必须走图片编辑模型。Soul image-to-image 会把 image_url 当成场景/构图参考，不能只换衣服。
+	if higgsfieldClothingSwap(payload) {
+		return nil, "", false, errors.New("换装请使用图片编辑模型，不要提交到 Soul image-to-image")
 	}
 	// 参考图：JSON 里以 image/image_url 等字段出现的 dataUrl 或 http URL 统一转成公网 image_url
 	if ref := higgsfieldExtractReference(payload, channel); ref != "" {
@@ -61,9 +67,16 @@ func normalizeHiggsfieldBody(body []byte, contentType string, modelName string, 
 			}
 		}
 	}
-	// Higgsfield 端点在 URL 里，body 里这些 OpenAI 字段会被上游拒绝或忽略
-	for _, key := range []string{"model", "size", "quality", "response_format", "n", "count"} {
+	if err := applyHiggsfieldSoulReference(payload, channel); err != nil {
+		return nil, "", false, err
+	}
+	// Higgsfield 端点在 URL 里，body 里这些 OpenAI 字段会被上游拒绝或忽略。
+	// 不补 style_id：上游有自己的默认风格，这里不编造 Moodboard UUID。
+	for _, key := range []string{"model", "size", "quality", "response_format", "n", "count", "clothing_swap", "reference_role"} {
 		delete(payload, key)
+	}
+	if higgsfieldStringValue(payload["style_id"]) == "" {
+		delete(payload, "style_id")
 	}
 	// enhance_prompt 默认开启：让 Higgsfield 对 prompt 做增强优化，否则默认 false，复杂需求出图质量差
 	if _, ok := payload["enhance_prompt"]; !ok {
@@ -278,6 +291,103 @@ func isGenericBinaryMIME(mimeType string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func higgsfieldClothingSwap(payload map[string]any) bool {
+	switch value := payload["clothing_swap"].(type) {
+	case bool:
+		if value {
+			return true
+		}
+	case string:
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "1", "true", "yes":
+			return true
+		}
+	}
+	switch strings.ToLower(higgsfieldStringValue(payload["reference_role"])) {
+	case "garment", "clothing", "outfit":
+		return true
+	default:
+		return false
+	}
+}
+
+// higgsfieldUpstreamImagePath 决定 Soul 出图端点。只有场景参考图走 image-to-image；换装不进这个函数。
+func higgsfieldUpstreamImagePath(modelName string, hasReference bool) string {
+	name := strings.TrimPrefix(strings.TrimSpace(modelName), "/")
+	if name == "" {
+		return ""
+	}
+	if hasReference && strings.Contains(strings.ToLower(name), "soul/v2") {
+		return "/higgsfield-ai/soul/v2/image-to-image"
+	}
+	return "/" + name
+}
+
+func applyHiggsfieldSoulReference(payload map[string]any, channel model.ModelChannel) error {
+	id := higgsfieldStringValue(payload["custom_reference_id"])
+	if id == "" {
+		delete(payload, "custom_reference_id")
+		delete(payload, "custom_reference_strength")
+		return nil
+	}
+	if !service.SoulReferenceID(id) {
+		return errors.New("custom_reference_id 必须是 Soul ID")
+	}
+	strength, ok, err := higgsfieldReferenceStrength(payload["custom_reference_strength"])
+	if err != nil {
+		return err
+	}
+	if !ok {
+		strength = 1
+	}
+	if strength <= 0 || strength > 1 {
+		return errors.New("custom_reference_strength 必须大于 0 且不超过 1")
+	}
+	item, err := service.GetSoulReference(context.Background(), channel, id)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(strings.TrimSpace(item.Status), "completed") {
+		return errors.New("Soul ID 尚未训练完成，不能用于出图")
+	}
+	payload["custom_reference_id"] = id
+	payload["custom_reference_strength"] = strength
+	return nil
+}
+
+func higgsfieldReferenceStrength(value any) (float64, bool, error) {
+	switch strength := value.(type) {
+	case nil:
+		return 0, false, nil
+	case float64:
+		return strength, true, nil
+	case float32:
+		return float64(strength), true, nil
+	case int:
+		return float64(strength), true, nil
+	case int64:
+		return float64(strength), true, nil
+	case json.Number:
+		parsed, err := strength.Float64()
+		if err != nil {
+			return 0, false, errors.New("custom_reference_strength 必须大于 0 且不超过 1")
+		}
+		return parsed, true, nil
+	case string:
+		text := strings.TrimSpace(strength)
+		if text == "" {
+			return 0, false, nil
+		}
+		parsed, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return 0, false, errors.New("custom_reference_strength 必须大于 0 且不超过 1")
+		}
+		return parsed, true, nil
+	default:
+		return 0, false, errors.New("custom_reference_strength 必须大于 0 且不超过 1")
 	}
 }
 

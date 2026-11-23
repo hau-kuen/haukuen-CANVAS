@@ -6,6 +6,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { isKIESeedreamLayerDecompositionModel } from "@/lib/kie-models";
 import { isMimoChannel, mimoModels } from "@/lib/mimo-tts";
 import { modelChannelAttributionHeaders } from "@/lib/model-channel";
+import { prepareOutfitImageRequest, soulReferenceFields } from "@/lib/soul-outfit";
 import { dataUrlToGeminiInlineData, geminiActionUrl, geminiDirectHeaders, geminiErrorMessage, isGeminiConfig, normalizeGeminiBaseUrl } from "@/lib/gemini";
 import { autoSyncImage, imageToDataUrl, resolveImageUrl, type UploadedImage } from "@/services/image-storage";
 import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, directAIProviderForConfig, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
@@ -700,6 +701,7 @@ async function requestImageGenerationSingle(config: AiConfig & { seedIndex?: num
     const body: Record<string, unknown> = {
         model: config.model,
         prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
+        ...soulReferenceFields(config),
     };
     applyImageGenerationParams(body, config, params);
     applyImageGenerationOptions(body, config, params);
@@ -794,6 +796,11 @@ async function requestImageEditSingle(config: AiConfig, prompt: string, referenc
     if (params.n > 1) formData.set("n", String(params.n));
     if (params.size) formData.set("size", params.size);
     if (params.quality && !config.codexCli) formData.set("quality", params.quality);
+    const soulFields = soulReferenceFields(config);
+    if (soulFields.custom_reference_id) {
+        formData.set("custom_reference_id", String(soulFields.custom_reference_id));
+        formData.set("custom_reference_strength", String(soulFields.custom_reference_strength));
+    }
     if (config.responseFormatB64Json) formData.set("response_format", "b64_json");
     if (config.streamImages) {
         formData.set("stream", "true");
@@ -965,6 +972,9 @@ async function requestAndParseImages(config: AiConfig, endpoint: string, request
 }
 
 async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], signal?: AbortSignal): Promise<GeneratedImage[]> {
+	const prepared = prepareOutfitImageRequest(config, prompt);
+	config = prepared.config;
+	prompt = prepared.prompt;
 	const translation = await findParameterTranslation(config);
 	if (translation) {
 		const input = await imageTranslationInput(config,prompt,references,createImageRequestParams(config));
@@ -1054,6 +1064,9 @@ export async function requestEdit(config: AiConfig & { seedIndex?: number; seedC
 }
 
 export async function createCanvasImageTask(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], options: CanvasImageTaskOptions = {}): Promise<CanvasImageTask> {
+	const prepared = prepareOutfitImageRequest(config, prompt);
+	config = prepared.config;
+	prompt = prepared.prompt;
 	const translation = await findParameterTranslation(config);
     if (!usesAccountProxy(config)) {
         const images = await requestImages({ ...config, count: "1" }, prompt, references, options.signal);
@@ -1217,6 +1230,11 @@ async function createCanvasImageTaskRequest(config: AiConfig & { seedIndex?: num
             formData.set("partial_images", String(params.streamPartialImages));
         }
         if (params.size) formData.set("size", params.size);
+        const taskSoulFields = soulReferenceFields(config);
+        if (taskSoulFields.custom_reference_id) {
+            formData.set("custom_reference_id", String(taskSoulFields.custom_reference_id));
+            formData.set("custom_reference_strength", String(taskSoulFields.custom_reference_strength));
+        }
         const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
         files.forEach((file) => formData.append("image", file));
         return { method: "POST", headers: tokenHeaders, body: formData };
@@ -1236,6 +1254,7 @@ async function createCanvasImageTaskRequest(config: AiConfig & { seedIndex?: num
     const body: Record<string, unknown> = {
         model: config.model,
         prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
+        ...soulReferenceFields(config),
     };
     applyImageGenerationParams(body, config, params);
     applyImageGenerationOptions(body, config, params);

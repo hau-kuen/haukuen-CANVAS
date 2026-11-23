@@ -30,6 +30,13 @@ description: 业务接口统一响应结构与前端处理约定
 - `/api/v1/audio/speech` 是 AI 协议代理入口。AutoDL 成功时返回 `{ provider: "autodl", audio_url, mime_type }`；MiniMax 和 TokenDance MiniMax 成功时解码上游 hex，并返回所选格式的音频二进制；失败仍使用现有 `Fail` 业务结构。其他语音协议的响应保持原样。
 - 现有 `/api/v1/canvas/audio-tasks` 消费 AutoDL 的上游音频 URL，返回既有任务结构，不新增结果下载或转存。
 
+## Higgsfield Soul ID
+
+- `GET /api/v1/higgsfield/soul-ids` 列出当前 Higgsfield 渠道账号下的 Soul ID，查询参数为 `page` 和 `pageSize`。
+- `POST /api/v1/higgsfield/soul-ids` 创建 Soul 2.0 角色。请求体为 `{ name, authorized, imageUrls }`。`authorized` 必须为 true，未确认人物授权时直接失败。`model_version` 固定为 `v2`。`imageUrls` 可以是公网 URL，或由服务端先上传到 Higgsfield CDN 的 data URL。
+- `GET /api/v1/higgsfield/soul-ids/:id` 读取单个 Soul ID 的训练状态：`not_ready`、`queued`、`in_progress`、`completed`、`failed`。
+- 渠道密钥沿用现有 Higgsfield 渠道的 `Authorization: Key <Key ID>:<Secret>`。本地渠道用 `X-User-Model-Channel-ID`，云端渠道用 `X-Model-Channel-ID`。响应仍是 `{ code, data, msg }`，不返回密钥。
+
 ## 渠道自定传参转译
 
 - 沿用 `/api/v1/images/generations`、`/api/v1/images/edits`、`/api/v1/audio/speech`、`/api/v1/videos` 及现有画布任务入口。命中自定义的账号请求携带 `{ model, n, _parameterTranslation: { kind, variables } }`；视频另携带面板 `seconds`，沿用现有按秒费用计算。`kind` 为 `image`、`video`、`audio`。

@@ -89,7 +89,7 @@ func DeleteCurrentUserAgentSkill(ctx context.Context, id string) error {
 }
 
 func DeleteSystemAgentSkill(id string) error {
-	return repository.DeleteSystemAgentSkill(strings.TrimSpace(id))
+	return repository.DeleteSystemAgentSkill(strings.TrimSpace(id), now())
 }
 
 func saveAgentSkill(input model.AgentSkill, source string, ownerUserID string) (model.AgentSkill, error) {

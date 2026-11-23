@@ -155,13 +155,22 @@ export const CANVAS_AGENT_TOOLS: CanvasAgentToolDefinition[] = [
             sourceNodeIds: STRING_ARRAY,
             size: STRING,
             count: { type: "integer", minimum: 1, maximum: 15 },
+            soulId: { type: "string", description: "模式 B 的已完成 Soul ID。模式 A 不要传。" },
+            soulStrength: { type: "number", exclusiveMinimum: 0, maximum: 1, description: "Soul ID 强度，必须大于 0 且不超过 1。省略时为 1。" },
         },
         ["prompt", "sourceNodeIds"],
     ),
     defineTool(
         "edit_image",
-        "创建图片编辑节点和来源连线，并按 Agent 自动生成设置决定是否提交现有图片编辑链路；必须提供至少一个真实图片来源节点，图片按 sourceNodeIds 顺序编号。",
-        { prompt: STRING, title: STRING, sourceNodeIds: STRING_ARRAY, size: STRING, count: { type: "integer", minimum: 1, maximum: 15 } },
+        "创建图片编辑节点和来源连线，并按 Agent 自动生成设置决定是否提交现有图片编辑链路；必须提供至少一个真实图片来源节点，图片按 sourceNodeIds 顺序编号。换装时 clothingSwap 必须为 true，以便改用图片编辑模型而不是 Soul image-to-image。",
+        {
+            prompt: STRING,
+            title: STRING,
+            sourceNodeIds: STRING_ARRAY,
+            size: STRING,
+            count: { type: "integer", minimum: 1, maximum: 15 },
+            clothingSwap: { type: "boolean", description: "true 时只替换服装，并改用已配置的图片编辑模型。" },
+        },
         ["prompt", "sourceNodeIds"],
     ),
     defineTool(
@@ -315,6 +324,16 @@ export function normalizeCanvasAgentAction(name: unknown, args: unknown, id = na
                 ...(boundedInteger(input.count, 1, 15) ? { count: boundedInteger(input.count, 1, 15) } : {}),
             };
             if (actionName === "edit_image" && sourceNodeIds && !sourceNodeIds.length) throw new Error("edit_image 缺少图片来源节点");
+            if (actionName === "generate_image" && input.clothingSwap === true) throw new Error("换装请使用 edit_image，并设置 clothingSwap");
+            const soulId = optionalString(input.soulId);
+            const soulStrength = optionalSoulStrength(input.soulStrength);
+            if (input.clothingSwap !== undefined && typeof input.clothingSwap !== "boolean") throw new Error("clothingSwap 必须是布尔值");
+            normalized = {
+                ...normalized,
+                ...(soulId ? { soulId } : {}),
+                ...(soulStrength !== undefined ? { soulStrength } : {}),
+                ...(input.clothingSwap === true ? { clothingSwap: true } : {}),
+            };
             break;
         }
         case "generate_video": {
@@ -495,6 +514,13 @@ function requiredString(value: unknown, key: string) {
     const text = value.trim();
     if (!text) throw new Error(key + " 不能为空");
     return text;
+}
+
+function optionalSoulStrength(value: unknown) {
+    if (value === undefined) return undefined;
+    const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+    if (!Number.isFinite(number) || number <= 0 || number > 1) throw new Error("Soul ID 强度必须大于 0 且不超过 1");
+    return number;
 }
 
 function optionalString(value: unknown) {

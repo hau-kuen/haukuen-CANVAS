@@ -49,6 +49,9 @@ export type CanvasNodeMetadata = {
     size?: string;
     quality?: string;
     count?: number;
+    soulId?: string;
+    soulStrength?: string;
+    clothingSwap?: boolean;
     seconds?: string;
     vquality?: string;
     mode?: string;

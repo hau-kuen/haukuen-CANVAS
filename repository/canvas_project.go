@@ -23,6 +23,19 @@ func ListUserCanvasProjects(userID string) ([]model.CanvasProject, error) {
 	return projects, err
 }
 
+// GetUserCanvasProject 按 ID 读取未删除的画布项目。
+func GetUserCanvasProject(id string) (model.CanvasProject, error) {
+	db, err := DB()
+	if err != nil {
+		return model.CanvasProject{}, err
+	}
+	var project model.CanvasProject
+	if err := db.Where("id = ? AND deleted_at = ''", strings.TrimSpace(id)).First(&project).Error; err != nil {
+		return model.CanvasProject{}, err
+	}
+	return project, nil
+}
+
 func SaveUserCanvasProject(
 	project model.CanvasProject,
 ) (model.CanvasProject, error) {

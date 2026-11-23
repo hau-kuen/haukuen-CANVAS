@@ -45,6 +45,15 @@ export const IMAGE_SKILL = String.raw`
 
 避免只写“高质量、电影感、漂亮、震撼”。参考已经锁定的身份和外观不要用冲突文字重新描述。
 
+Soul 2.0（Higgsfield）专用：
+
+- 提示词用英文，60–120 词，超过 150 词会丢细节。
+- 顺序固定：主体+材质 → 场景 → 光位与强度 → 机位/镜头/光圈 → 影调。
+- 只写正向描述，模型没有 negative prompt：写「plain unlabeled surface」而不是「no text」，写「tack sharp」而不是「no blur」。
+- 不写品牌名、型号、真实 Logo，会触发 ip 审核或生成乱码 Logo；要干净表面就写「unbranded, unmarked」。
+- 不堆「8K / ultra detailed / masterpiece / stunning」。画幅只能是 1:1、4:3、3:4、3:2、2:3、16:9、9:16；清晰度由后端固定提交 1080p，提示词里不要写分辨率。
+- 多张变体逐张换光位/机位/影调，同一段提示词重复生成只会得到近似复制品。
+
 ## 4. 视频项目的锚点优先级
 
 1. 主要角色或产品的标准参考。

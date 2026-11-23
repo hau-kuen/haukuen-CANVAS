@@ -17,6 +17,7 @@ const (
 	ModelChannelProtocolArk      = "ark"
 	ModelChannelProtocolTokenDance = "tokendance"
 	ModelChannelProtocolHiggsfield = "higgsfield"
+	ModelChannelProtocolGrsaiVideo = "grsaivideo"
 )
 
 type modelProtocolAdapter struct {
@@ -32,7 +33,7 @@ type modelProtocolRule struct {
 }
 
 var modelProtocolRegistry map[string]modelProtocolAdapter
-var modelProtocolIDs = []string{ModelChannelProtocolOpenAI, ModelChannelProtocolGemini, ModelChannelProtocolGrok2API, ModelChannelProtocolMiniMax, ModelChannelProtocolAPIMart, ModelChannelProtocolKIE, ModelChannelProtocolMiMo, ModelChannelProtocolAutoDL, ModelChannelProtocolArk, ModelChannelProtocolTokenDance, ModelChannelProtocolHiggsfield}
+var modelProtocolIDs = []string{ModelChannelProtocolOpenAI, ModelChannelProtocolGemini, ModelChannelProtocolGrok2API, ModelChannelProtocolMiniMax, ModelChannelProtocolAPIMart, ModelChannelProtocolKIE, ModelChannelProtocolMiMo, ModelChannelProtocolAutoDL, ModelChannelProtocolArk, ModelChannelProtocolTokenDance, ModelChannelProtocolHiggsfield, ModelChannelProtocolGrsaiVideo}
 
 func init() {
 	compatible := modelProtocolAdapter{
@@ -132,6 +133,16 @@ func init() {
 		return "Higgsfield 是异步生成模型，请在画布或生图工作台测试实际生成。", nil
 	}
 	modelProtocolRegistry[ModelChannelProtocolHiggsfield] = higgsfield
+
+	// grsai 视频：POST /v1/api/generate + GET /v1/api/result?id=（wan-3.0 / minimax-h3）
+	grsaiVideo := compatible
+	grsaiVideo.models = func(model.ModelChannel) ([]string, error) {
+		return []string{"wan-3.0", "minimax-h3"}, nil
+	}
+	grsaiVideo.testModel = func(_ model.ModelChannel, _ string) (string, error) {
+		return "grsai 视频是异步生成模型，请在画布或视频创作台测试实际生成。", nil
+	}
+	modelProtocolRegistry[ModelChannelProtocolGrsaiVideo] = grsaiVideo
 }
 
 // 发现模型、配置测试与生成的命中规则不同，分别保留原有优先级。

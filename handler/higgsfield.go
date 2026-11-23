@@ -1,9 +1,14 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,30 +23,262 @@ func isHiggsfieldChannel(channel model.ModelChannel, _ string) bool {
 }
 
 // normalizeHiggsfieldBody 把 OpenAI 格式的图片请求体转成 Higgsfield 格式。
-func normalizeHiggsfieldBody(body []byte, contentType string, modelName string, channel model.ModelChannel) ([]byte, string, error) {
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "application/json") {
-		return body, contentType, nil
+// 第三个返回值表示本次请求是否携带参考图（参考图会被转成公网 image_url，供 prepare 路由到 image-to-image 端点）。
+func normalizeHiggsfieldBody(body []byte, contentType string, modelName string, channel model.ModelChannel) ([]byte, string, bool, error) {
+	payload, hasReference, err := higgsfieldPayload(body, contentType, channel)
+	if err != nil || payload == nil {
+		return body, contentType, false, err
+	}
+	// 参考图：JSON 里以 image/image_url 等字段出现的 dataUrl 或 http URL 统一转成公网 image_url
+	if ref := higgsfieldExtractReference(payload, channel); ref != "" {
+		payload["image_url"] = ref
+		higgsfieldClearReferenceFields(payload)
+		hasReference = true
+	}
+	// 画幅：优先用调用方显式 aspect_ratio，其次由 size 换算，最后吸附到 Higgsfield 支持的画幅
+	ratio := higgsfieldStringValue(payload["aspect_ratio"])
+	if ratio == "" {
+		ratio = higgsfieldAspectRatio(higgsfieldStringValue(payload["size"]))
+	}
+	if snapped := higgsfieldSnapAspectRatio(ratio); snapped != "" {
+		payload["aspect_ratio"] = snapped
+	}
+	// 清晰度：Soul 只有 720p / 1080p 两档，不传会落到最低档，出图明显发糊
+	if _, ok := payload["resolution"]; !ok {
+		payload["resolution"] = higgsfieldResolution(higgsfieldStringValue(payload["quality"]))
+	}
+	// 张数：OpenAI 的 n 在 Higgsfield 上分别是 num_images / batch_size
+	// 带参考图走 image-to-image，仅支持单张，不设置张数。
+	if !hasReference {
+		if count := higgsfieldImageCount(payload); count > 0 {
+			if strings.Contains(strings.ToLower(modelName), "soul/v2") {
+				payload["batch_size"] = 4
+				if count < 4 {
+					delete(payload, "batch_size")
+				}
+			} else {
+				payload["num_images"] = count
+			}
+		}
+	}
+	// Higgsfield 端点在 URL 里，body 里这些 OpenAI 字段会被上游拒绝或忽略
+	for _, key := range []string{"model", "size", "quality", "response_format", "n", "count"} {
+		delete(payload, key)
+	}
+	// enhance_prompt 默认开启：让 Higgsfield 对 prompt 做增强优化，否则默认 false，复杂需求出图质量差
+	if _, ok := payload["enhance_prompt"]; !ok {
+		payload["enhance_prompt"] = true
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return body, contentType, false, err
+	}
+	return encoded, "application/json", hasReference, nil
+}
+
+// higgsfieldPayload 把请求体解析成 map；multipart 表单会提取参考图文件并上传成公网 URL。
+func higgsfieldPayload(body []byte, contentType string, channel model.ModelChannel) (map[string]any, bool, error) {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		payload, refBytes, refMime, err := higgsfieldMultipartPayload(body, contentType)
+		if err != nil {
+			return nil, false, err
+		}
+		if refBytes != nil {
+			url, err := uploadHiggsfieldImage(refBytes, refMime, channel)
+			if err != nil {
+				return nil, false, err
+			}
+			payload["image_url"] = url
+			return payload, true, nil
+		}
+		return payload, false, nil
+	}
+	if !strings.HasPrefix(ct, "application/json") {
+		return nil, false, nil
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return body, contentType, nil
+		return nil, false, err
 	}
-	// size → aspect_ratio
-	if size, ok := payload["size"].(string); ok && strings.TrimSpace(size) != "" {
-		if ratio := higgsfieldAspectRatio(size); ratio != "" {
-			payload["aspect_ratio"] = ratio
+	return payload, false, nil
+}
+
+// higgsfieldMultipartPayload 解析 multipart 表单，返回 JSON payload 与参考图文件字节。
+func higgsfieldMultipartPayload(body []byte, contentType string) (map[string]any, []byte, string, error) {
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	form, err := multipart.NewReader(bytes.NewReader(body), params["boundary"]).ReadForm(32 << 20)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	defer form.RemoveAll()
+	payload := map[string]any{}
+	for key, values := range form.Value {
+		if len(values) > 0 {
+			payload[key] = values[0]
 		}
 	}
-	// Higgsfield 端点在 URL 里，body 不需要 model / size / response_format
-	delete(payload, "model")
-	delete(payload, "size")
-	delete(payload, "response_format")
-	// n（张数）→ num_images 由 Higgsfield 自行处理，保留原字段名以兼容
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return body, contentType, err
+	for _, field := range []string{"image", "image_url", "file"} {
+		if headers, ok := form.File[field]; ok && len(headers) > 0 {
+			file, err := headers[0].Open()
+			if err != nil {
+				return nil, nil, "", err
+			}
+			data, _ := io.ReadAll(file)
+			_ = file.Close()
+			return payload, data, headers[0].Header.Get("Content-Type"), nil
+		}
 	}
-	return encoded, "application/json", nil
+	return payload, nil, "", nil
+}
+
+// higgsfieldExtractReference 从 payload 提取参考图，返回公网 URL（空表示无参考图）。
+func higgsfieldExtractReference(payload map[string]any, channel model.ModelChannel) string {
+	for _, key := range []string{"image", "image_url", "image_urls", "reference_image", "reference_image_url", "input_url"} {
+		value, ok := payload[key]
+		if !ok {
+			continue
+		}
+		switch v := value.(type) {
+		case string:
+			if url := higgsfieldPublicReference(v, channel); url != "" {
+				return url
+			}
+		case []any:
+			for _, item := range v {
+				if text, ok := item.(string); ok {
+					if url := higgsfieldPublicReference(text, channel); url != "" {
+						return url
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// higgsfieldPublicReference 把单个参考图值转成公网 URL：dataUrl 上传，http(s) 直用。
+func higgsfieldPublicReference(value string, channel model.ModelChannel) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "data:") {
+		data, mimeType, err := decodeDataURL(value)
+		if err != nil {
+			return ""
+		}
+		url, err := uploadHiggsfieldImage(data, mimeType, channel)
+		if err != nil {
+			return ""
+		}
+		return url
+	}
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		return value
+	}
+	return ""
+}
+
+// higgsfieldClearReferenceFields 清掉 OpenAI 风格的参考图字段，image_url 保留作为 image-to-image 参数。
+func higgsfieldClearReferenceFields(payload map[string]any) {
+	for _, key := range []string{"image", "images", "image_urls", "reference_image", "reference_images", "reference_image_url", "reference_image_urls", "input_url", "input_urls", "input_reference", "input_reference[]", "image_input", "file"} {
+		delete(payload, key)
+	}
+}
+
+// decodeDataURL 解析 data:image/...;base64,... 为原始字节和 MIME 类型。
+func decodeDataURL(value string) ([]byte, string, error) {
+	comma := strings.Index(value, ",")
+	if comma < 0 {
+		return nil, "", fmt.Errorf("invalid data url")
+	}
+	meta, data := value[:comma], value[comma+1:]
+	mimeType := "image/png"
+	lower := strings.ToLower(meta)
+	if strings.Contains(lower, "image/jpeg") || strings.Contains(lower, "image/jpg") {
+		mimeType = "image/jpeg"
+	} else if strings.Contains(lower, "image/webp") {
+		mimeType = "image/webp"
+	}
+	raw := []byte(data)
+	if strings.Contains(lower, ";base64") {
+		decoded, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			return nil, "", err
+		}
+		raw = decoded
+	}
+	return raw, mimeType, nil
+}
+
+// uploadHiggsfieldImage 把图片字节上传到 Higgsfield CDN，返回公网 URL。
+func uploadHiggsfieldImage(data []byte, mimeType string, channel model.ModelChannel) (string, error) {
+	if strings.TrimSpace(mimeType) == "" || isGenericBinaryMIME(mimeType) {
+		mimeType = http.DetectContentType(data)
+	}
+	// 1. 申请上传链接
+	linkBody, _ := json.Marshal(map[string]any{"content_type": mimeType})
+	linkReq, err := http.NewRequest(http.MethodPost, service.BuildModelChannelURL(channel, "/files/generate-upload-url"), bytes.NewReader(linkBody))
+	if err != nil {
+		return "", err
+	}
+	linkReq.Header.Set("Authorization", "Key "+channel.APIKey)
+	linkReq.Header.Set("Content-Type", "application/json")
+	linkResp, err := service.HTTPClientForChannel(channel).Do(linkReq)
+	if err != nil {
+		return "", err
+	}
+	linkPayload, _ := io.ReadAll(io.LimitReader(linkResp.Body, 1<<20))
+	_ = linkResp.Body.Close()
+	if linkResp.StatusCode >= http.StatusBadRequest {
+		return "", fmt.Errorf("Higgsfield upload link failed: %s", readUpstreamAIErrorMessage(linkPayload, linkResp.StatusCode))
+	}
+	var link struct {
+		UploadURL     string            `json:"upload_url"`
+		PublicURL     string            `json:"public_url"`
+		ContentType   string            `json:"content_type"`
+		UploadHeaders map[string]string `json:"upload_headers"`
+	}
+	if err := json.Unmarshal(linkPayload, &link); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(link.UploadURL) == "" || strings.TrimSpace(link.PublicURL) == "" {
+		return "", fmt.Errorf("Higgsfield upload link empty")
+	}
+	// 2. PUT 上传字节，必须带上服务端返回的 upload_headers（含 x-amz-tagging 等签名头），否则 403 签名不匹配
+	putReq, err := http.NewRequest(http.MethodPut, link.UploadURL, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	for key, value := range link.UploadHeaders {
+		putReq.Header.Set(key, value)
+	}
+	if strings.TrimSpace(putReq.Header.Get("Content-Type")) == "" {
+		putReq.Header.Set("Content-Type", mimeType)
+	}
+	putResp, err := service.HTTPClientForChannel(channel).Do(putReq)
+	if err != nil {
+		return "", err
+	}
+	_ = putResp.Body.Close()
+	if putResp.StatusCode >= http.StatusBadRequest {
+		return "", fmt.Errorf("Higgsfield upload failed: HTTP %d", putResp.StatusCode)
+	}
+	return link.PublicURL, nil
+}
+
+// isGenericBinaryMIME 判断是否是未指定具体类型的二进制 MIME（multipart 默认值），这类需要按字节自动检测。
+func isGenericBinaryMIME(mimeType string) bool {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "application/octet-stream", "application/binary", "binary", "":
+		return true
+	default:
+		return false
+	}
 }
 
 func higgsfieldAspectRatio(size string) string {
@@ -78,6 +315,75 @@ func gcdPositive(a, b int) int {
 		a, b = b, a%b
 	}
 	return a
+}
+
+func higgsfieldStringValue(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
+// Higgsfield 只接受固定画幅，任意尺寸换算出的比例要吸附到最接近的一档，否则上游直接 400。
+var higgsfieldAspectRatios = []struct {
+	name  string
+	value float64
+}{
+	{"1:1", 1},
+	{"4:3", 4.0 / 3},
+	{"3:4", 3.0 / 4},
+	{"3:2", 1.5},
+	{"2:3", 2.0 / 3},
+	{"16:9", 16.0 / 9},
+	{"9:16", 9.0 / 16},
+}
+
+func higgsfieldSnapAspectRatio(ratio string) string {
+	parts := strings.SplitN(strings.TrimSpace(ratio), ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	w, err1 := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	h, err2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err1 != nil || err2 != nil || w <= 0 || h <= 0 {
+		return ""
+	}
+	target := w / h
+	best, bestDiff := "", math.MaxFloat64
+	for _, item := range higgsfieldAspectRatios {
+		if diff := math.Abs(target - item.value); diff < bestDiff {
+			best, bestDiff = item.name, diff
+		}
+	}
+	return best
+}
+
+// higgsfieldResolution 决定出图清晰度：Soul 只有 720p / 1080p，不传时上游按最低档出图。
+func higgsfieldResolution(quality string) string {
+	switch strings.ToLower(strings.TrimSpace(quality)) {
+	case "low", "720p", "1k", "1.5k", "fast", "draft":
+		return "720p"
+	default:
+		return "1080p"
+	}
+}
+
+func higgsfieldImageCount(payload map[string]any) int {
+	for _, key := range []string{"n", "count"} {
+		switch value := payload[key].(type) {
+		case float64:
+			if value >= 1 {
+				return min(int(value), 4)
+			}
+		case int:
+			if value >= 1 {
+				return min(value, 4)
+			}
+		case string:
+			if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && parsed >= 1 {
+				return min(parsed, 4)
+			}
+		}
+	}
+	return 0
 }
 
 // copyHiggsfieldResponse 拦截 Higgsfield 图片提交响应：先提交拿 request_id，再轮询到结果。

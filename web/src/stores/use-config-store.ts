@@ -278,6 +278,9 @@ function isVideoModelName(model: string) {
         value.includes("infinitalk") ||
         value.includes("wan2-5") ||
         value.includes("wan2.5") ||
+        value.includes("wan-3") ||
+        value.includes("wan3.") ||
+        value === "wan-3.0" ||
         value.includes("wan2-6") ||
         value.includes("wan2.6") ||
         value.includes("wan2-7") ||

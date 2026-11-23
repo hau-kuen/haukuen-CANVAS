@@ -184,7 +184,10 @@ export function AppConfigModal() {
 
     const finishConfig = async () => {
         const localIncomplete = effectiveMode === "local" && normalizeLocalChannels(config).filter((channel) => !isWorkflowProtocol(channel.protocol)).some((channel) => !channel.baseUrl.trim() || !channel.apiKey.trim());
-        const modelIncomplete = !modelConfig.imageModel.trim() || !modelConfig.videoModel.trim() || !modelConfig.textModel.trim();
+        // 视频模型只在「确实存在可选视频模型」时才要求必填：
+        // 没接 RunningHub/ComfyUI 视频渠道时 videoModels 为空，不应因此弹警告。
+        const hasVideoModels = (modelConfig.videoModels || []).some(Boolean);
+        const modelIncomplete = !modelConfig.imageModel.trim() || !modelConfig.textModel.trim() || (hasVideoModels && !modelConfig.videoModel.trim());
 		if (userStorage.enabled && userWebDAVStorage.enabled) {
 			message.error("S3/R2 与 WebDAV 不能同时启用");
 			return;

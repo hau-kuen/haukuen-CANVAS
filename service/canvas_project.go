@@ -17,6 +17,26 @@ type canvasProjectMetadata struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
+type canvasProjectTitleOnly struct {
+	Title string `json:"title"`
+}
+
+// CanvasProjectTitle 读取画布项目标题（只用于存储目录命名，读不到就返回空）。
+func CanvasProjectTitle(projectID string) string {
+	if strings.TrimSpace(projectID) == "" {
+		return ""
+	}
+	project, err := repository.GetUserCanvasProject(projectID)
+	if err != nil {
+		return ""
+	}
+	var meta canvasProjectTitleOnly
+	if err := json.Unmarshal([]byte(project.ProjectData), &meta); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(meta.Title)
+}
+
 func canvasProjectFromRaw(
 	userID string,
 	raw json.RawMessage,

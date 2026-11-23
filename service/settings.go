@@ -1087,6 +1087,10 @@ func normalizeStorageProvider(provider model.StorageProvider) model.StorageProvi
 	provider.Endpoint = strings.TrimRight(strings.TrimSpace(provider.Endpoint), "/")
 	provider.Bucket = strings.TrimSpace(provider.Bucket)
 	provider.AccessKeyID = strings.TrimSpace(provider.AccessKeyID)
+	provider.RootPath = strings.TrimSpace(provider.RootPath)
+	if provider.Type == model.StorageProviderTypeLocal && provider.RootPath == "" {
+		provider.RootPath = "data/storage"
+	}
 	if provider.Type == model.StorageProviderTypeWebDAV {
 		provider.PathPrefix = strings.Trim(strings.TrimSpace(provider.PathPrefix), "/")
 		if provider.PathPrefix == "" {
@@ -1107,11 +1111,14 @@ func normalizeStorageProvider(provider model.StorageProvider) model.StorageProvi
 }
 
 func stableStorageProviderID(provider model.StorageProvider) string {
-	webDAVPath := ""
-	if provider.Type == model.StorageProviderTypeWebDAV {
-		webDAVPath = provider.PathPrefix
+	extraPath := ""
+	switch provider.Type {
+	case model.StorageProviderTypeWebDAV:
+		extraPath = provider.PathPrefix
+	case model.StorageProviderTypeLocal:
+		extraPath = provider.RootPath
 	}
-	return "storage-" + providerSecureHash([]string{provider.OwnerUserID, provider.Type, provider.Name, provider.Endpoint, provider.Bucket, webDAVPath})
+	return "storage-" + providerSecureHash([]string{provider.OwnerUserID, provider.Type, provider.Name, provider.Endpoint, provider.Bucket, extraPath})
 }
 
 func stableModelChannelID(channel model.ModelChannel) string {

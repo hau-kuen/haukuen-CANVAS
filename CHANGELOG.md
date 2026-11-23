@@ -16,6 +16,29 @@
 + [优化] Agent 支持运行中压缩上下文
 + [优化] Agent 引用 Skill 时加载逻辑优化
 + [优化] Codex Agent 支持 GPT-6.2 Sol 和 Astra
++ [修复] 修复 Higgsfield Soul 2.0 出图清晰度与画幅参数缺失导致的出图发糊、非标尺寸报错
++ [优化] 优化 Soul 2.0 提示词规范，五个 Soul 摄影 Skill 与画布 Agent 统一按模型实际能力写词
++ [新增] Higgsfield Soul 2.0 参考图支持：画布参考图自动上传 Higgsfield CDN 并路由到 image-to-image 端点（修复摄影作品做风格参考不生效的问题）
+
+## v0.8.5 - 2026-11-23
+
++ [新增] 本地磁盘存储驱动：图片落本地卷（默认 `D:\canvas-storage`），按 `用户 / 项目 / 年月` 分目录，为后续迁群晖 NAS 预留可切换 provider
++ [新增] 上传接口接收 `projectId` / `projectTitle`，标题缺省时后端按项目 ID 回查，避免出现无意义目录名
++ [新增] grsai 视频协议 `grsaivideo`：`POST /v1/api/generate`（`replyType=async`）+ `GET /v1/api/result?id=`，支持 wan-3.0 与 minimax-h3
++ [新增] 视频参数映射：`seconds→duration`、`resolution_name→resolution`、`size→aspectRatio`，参考图/首尾帧/参考视频/参考音频全部对接
++ [新增] 视频任务进度透传，上游 `running + progress` 直接映射到画布进度条
++ [新增] 生图接入 gpt-image 全系列 8 个模型（2.6 / 2.5 及 flare、sunburst 高质档，gpt-image-2、gpt-image-2-vip）
++ [新增] 模型选择器改为两级：先选大类（GPT Image / Nano Banana / Wan 等），再展开具体模型
++ [新增] 每个模型标注积分消耗与人民币费用（按 1 RMB = 12500 积分换算），大类行显示该系列最低价
++ [新增] 历史图片回捞脚本 `scripts/backfill-canvas-images.py`，把只存了第三方临时 URL 的节点转存到本地存储
++ [新增] 唯一启动入口 `launch.ps1`，统一管理前端 / 后端 / canvas-agent 三个服务，幂等且能清理异目录实例
++ [修复] 修复 nano-banana 图生图"乱生成"：走后端代理时误用 `/draw/nano-banana`（该端点只作文生图、无视 `image` 字段），改为 `/chat/completions` 携带 `image_url`
++ [修复] 修复参考图报 502：生成结果只保存第三方临时图床地址，图床过期即失效，现自动转存本地存储并回写 `storageKey`
++ [修复] 修复视频请求同步阻塞：`replyType` 默认 `json` 会挂到视频生成完（实测 5 秒视频 300 秒不返回），改用 `async` 后 1 秒内返回任务 ID
++ [修复] 修复配置保存误报"部分模型或本地渠道密钥尚未配置完整"：未接视频渠道时不再强制要求视频模型
++ [优化] 图片任务轮询 5 秒 → 2 秒，减少完成后的空等
++ [优化] 视频/音频任务改为 8 秒节流采样，避免 2 秒定时器对长任务空转请求
++ [优化] 存储 provider 稳定 ID 纳入根目录，避免不同目录被识别为同一 provider
 
 ## v0.8.4 - 2026-11-03
 

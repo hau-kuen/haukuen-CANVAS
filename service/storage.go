@@ -226,6 +226,16 @@ func UploadTemporaryFile(ctx context.Context, body io.Reader, contentType string
 
 // UploadStorageObjectWithProvider 上传对象到存储（可选用户自定义 Provider）。
 func UploadStorageObjectWithProvider(ctx context.Context, filename string, contentType string, data []byte, providerInput *StorageObjectProviderInput) (UploadedStorageObject, error) {
+	return uploadStorageObject(ctx, filename, contentType, data, providerInput, "", "")
+}
+
+// UploadStorageObjectForProject 上传对象并按画布项目分目录存放。
+// objectKey 形如 {userID}/{projectDir}/{YYYY-MM}/{objectID}{ext}，与存储驱动无关。
+func UploadStorageObjectForProject(ctx context.Context, filename string, contentType string, data []byte, providerInput *StorageObjectProviderInput, projectID string, projectTitle string) (UploadedStorageObject, error) {
+	return uploadStorageObject(ctx, filename, contentType, data, providerInput, projectID, projectTitle)
+}
+
+func uploadStorageObject(ctx context.Context, filename string, contentType string, data []byte, providerInput *StorageObjectProviderInput, projectID string, projectTitle string) (UploadedStorageObject, error) {
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return UploadedStorageObject{}, err
@@ -260,7 +270,7 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 		userID = user.ID
 	}
 	nowTime := time.Now()
-	objectKey := strings.Trim(strings.Trim(provider.PathPrefix, "/")+"/"+userID+"/"+nowTime.Format("2006/01/02")+"/"+objectID+ext, "/")
+	objectKey := storageObjectKey(provider, userID, projectID, projectTitle, objectID, ext, nowTime)
 	sum := sha256.Sum256(data)
 	payloadHash := hex.EncodeToString(sum[:])
 	if err := putStorageObject(provider, objectKey, contentType, data, payloadHash); err != nil {
@@ -530,6 +540,8 @@ func DownloadStorageObject(id string, rangeHeader string) (DownloadedStorageObje
 			stream, readErr = getS3ObjectStream(provider, object.ObjectKey, rangeHeader)
 		case model.StorageProviderTypeWebDAV:
 			stream, readErr = getWebDAVObjectStream(provider, object.ObjectKey, object.Bytes, rangeHeader)
+		case model.StorageProviderTypeLocal:
+			stream, readErr = getLocalObjectStream(provider, object.ObjectKey, object.Bytes, rangeHeader)
 		}
 		if readErr == nil && stream.Body != nil {
 			return downloadedStorageObject(object, stream), nil
@@ -639,6 +651,9 @@ func selectStorageProvider(storage model.PrivateStorageSetting) (model.StoragePr
 }
 
 func storageProviderConfigured(provider model.StorageProvider) bool {
+	if provider.Type == model.StorageProviderTypeLocal {
+		return localStorageRoot(provider) != ""
+	}
 	if provider.Endpoint == "" {
 		return false
 	}
@@ -658,6 +673,8 @@ func putStorageObject(provider model.StorageProvider, objectKey string, contentT
 		return putS3Object(provider, objectKey, contentType, data, payloadHash)
 	case model.StorageProviderTypeWebDAV:
 		return putWebDAVObject(provider, objectKey, data)
+	case model.StorageProviderTypeLocal:
+		return putLocalObject(provider, objectKey, data)
 	default:
 		return errors.New("存储类型不支持")
 	}
@@ -669,6 +686,8 @@ func deleteStorageObjectData(provider model.StorageProvider, objectKey string) e
 		return deleteS3Object(provider, objectKey)
 	case model.StorageProviderTypeWebDAV:
 		return deleteWebDAVObject(provider, objectKey)
+	case model.StorageProviderTypeLocal:
+		return deleteLocalObject(provider, objectKey)
 	default:
 		return errors.New("存储类型不支持")
 	}
@@ -680,6 +699,8 @@ func measureStorageProvider(provider model.StorageProvider) (int64, error) {
 		return measureS3Provider(provider)
 	case model.StorageProviderTypeWebDAV:
 		return measureWebDAVProvider(provider)
+	case model.StorageProviderTypeLocal:
+		return measureLocalProvider(provider)
 	default:
 		return 0, errors.New("存储类型不支持")
 	}

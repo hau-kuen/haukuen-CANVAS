@@ -81,7 +81,12 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		}
 		provider = &parsed
 	}
-	object, err := service.UploadStorageObjectWithProvider(r.Context(), header.Filename, contentType, data, provider)
+	projectID := strings.TrimSpace(r.FormValue("projectId"))
+	projectTitle := strings.TrimSpace(r.FormValue("projectTitle"))
+	if projectTitle == "" && projectID != "" {
+		projectTitle = service.CanvasProjectTitle(projectID)
+	}
+	object, err := service.UploadStorageObjectForProject(r.Context(), header.Filename, contentType, data, provider, projectID, projectTitle)
 	if err != nil {
 		FailError(w, err)
 		return

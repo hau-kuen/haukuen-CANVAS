@@ -9,8 +9,9 @@ const (
 	SettingKeyPrivate                SettingKey = "private"
 	SettingKeyAgentSkillsInitialized SettingKey = "agent-skills-initialized"
 
-	StorageProviderTypeS3     = "s3"
-	StorageProviderTypeWebDAV = "webdav"
+	StorageProviderTypeS3       = "s3"
+	StorageProviderTypeWebDAV   = "webdav"
+	StorageProviderTypeLocal    = "local"
 )
 
 // ModelChannel 模型渠道配置。
@@ -203,6 +204,7 @@ type StorageProvider struct {
 	SecretAccessKey   string `json:"secretAccessKey"`
 	PublicBaseURL     string `json:"publicBaseUrl"`
 	PathPrefix        string `json:"pathPrefix"`
+	RootPath          string `json:"rootPath,omitempty"`
 	Username          string `json:"username"`
 	Password          string `json:"password"`
 	Weight            int    `json:"weight"`

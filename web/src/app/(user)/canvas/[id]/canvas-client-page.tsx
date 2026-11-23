@@ -474,6 +474,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const nodeTaskRunsRef = useRef(new Map<string, CanvasNodeTaskRun>());
     const pollingVideoNodeIdsRef = useRef(new Map<string, AbortController>());
     const pollingImageNodeIdsRef = useRef(new Map<string, AbortController>());
+    // 视频/音频任务动辄 1–15 分钟，用 2 秒定时器每轮都查会打空炮；
+    // 这里给它们单独的采样间隔（图片任务仍按 2 秒飞快刷新）。
+    const mediaPollAtRef = useRef<Record<string, number>>({});
     const pollingAudioNodeIdsRef = useRef(new Map<string, AbortController>());
     const hasLoadingTimedNodes = nodes.some((node) => node.metadata?.status === NODE_STATUS_LOADING && !node.metadata.content && (node.type === CanvasNodeType.Video || isCanvasImageNodeType(node.type) || node.type === CanvasNodeType.Audio));
 
@@ -752,6 +755,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             const videoTargets = nodesRef.current.filter((node) => node.type === CanvasNodeType.Video && node.metadata?.status === NODE_STATUS_LOADING && !node.metadata.content && canvasVideoTaskId(node.metadata));
             videoTargets.forEach((node) => {
                 if (pollingVideoNodeIdsRef.current.has(node.id)) return;
+                const lastPollAt = mediaPollAtRef.current[node.id] || 0;
+                if (Date.now() - lastPollAt < 8000) return;
+                mediaPollAtRef.current[node.id] = Date.now();
                 const taskId = canvasVideoTaskId(node.metadata);
                 const workflowToken = node.metadata?.workflowRef ? useUserStore.getState().token : "";
                 const generationConfig = buildGenerationConfig(effectiveConfig, node, "video");
@@ -796,6 +802,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             const audioTargets = nodesRef.current.filter((node) => node.type === CanvasNodeType.Audio && node.metadata?.status === NODE_STATUS_LOADING && !node.metadata.content && node.metadata.audioTaskId);
             audioTargets.forEach((node) => {
                 if (pollingAudioNodeIdsRef.current.has(node.id) || !node.metadata?.audioTaskId) return;
+                const lastAudioPollAt = mediaPollAtRef.current[node.id] || 0;
+                if (Date.now() - lastAudioPollAt < 8000) return;
+                mediaPollAtRef.current[node.id] = Date.now();
                 const workflowToken = node.metadata.workflowRef ? useUserStore.getState().token : "";
                 const controller = new AbortController();
                 pollingAudioNodeIdsRef.current.set(node.id, controller);
@@ -815,7 +824,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             });
         };
         pollCanvasTasks();
-        const timer = window.setInterval(pollCanvasTasks, VIDEO_POLL_INTERVAL_MS);
+        // 图片任务 18–28 秒就完成，5 秒一次轮询会白白多等最多 5 秒；
+        // 本地后端 GET 很轻，2 秒一次即可（视频任务也走这个定时器，仍可接受）。
+        const timer = window.setInterval(pollCanvasTasks, 2000);
         return () => window.clearInterval(timer);
     }, [effectiveConfig, handleStopNode, isAiConfigReady, isNodeTaskActive, projectLoaded, rememberNodeTask]);
 

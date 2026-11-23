@@ -282,11 +282,11 @@ export function clearAutoSyncCache(storageKey: string) {
     }
 }
 
-export async function autoSyncImage(url: string, resultId: string, storageKey?: string) {
+export async function autoSyncImage(url: string, resultId: string, storageKey?: string, projectId?: string) {
     if (!url || storageKey) return null;
     return autoSyncToCloud(`image:${resultId}`, async () => {
         try {
-            return await uploadRemoteImageToServer(url, "image");
+            return await uploadRemoteImageToServer(url, "image", projectId || "");
         } catch (error) {
             if (!url.startsWith("data:") && !url.startsWith("blob:")) throw error;
             reportStorageSyncFailure(error);
@@ -389,7 +389,7 @@ export async function uploadImage(input: string | Blob, options: UploadImageOpti
     return { url: urlObj, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType };
 }
 
-export async function uploadRemoteImageToServer(url: string, filename: string): Promise<UploadedImage> {
+export async function uploadRemoteImageToServer(url: string, filename: string, projectId = ""): Promise<UploadedImage> {
     const response = await fetch(getProxyUrl(url));
     if (!response.ok) {
         const payload = await response.json().catch(() => null) as { msg?: string } | null;
@@ -411,6 +411,7 @@ export async function uploadRemoteImageToServer(url: string, filename: string): 
     }
     const formData = new FormData();
     formData.append("file", blob, filename || "image-" + nanoid() + "." + imageExtension(blob.type));
+    if (projectId) formData.append("projectId", projectId);
     if (userProvider) formData.append("provider", JSON.stringify(toProviderPayload(userProvider)));
     const uploadResponse = await fetch("/api/v1/files", { method: "POST", headers: { Authorization: "Bearer " + token }, body: formData });
     const payload = (await uploadResponse.json().catch(() => null)) as { code?: number; msg?: string; data?: UploadedImage } | null;

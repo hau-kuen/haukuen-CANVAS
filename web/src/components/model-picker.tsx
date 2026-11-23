@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Cpu } from "lucide-react";
+import { ChevronLeft, ChevronRight, Cpu } from "lucide-react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
 import { isWorkflowProtocol } from "@/lib/model-channel";
+import { formatCreditsPrice, modelPriceEntry, modelPriceLabel } from "@/lib/model-pricing";
 import { cn } from "@/lib/utils";
 import type { WorkflowRef } from "@/lib/workflow-channel";
 import { filterModelsByCapability, normalizeLocalChannels, useConfigStore, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
@@ -56,7 +57,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     }, [channelId, channelOptions, value, workflowEnabled, workflowRef]);
     const options = channelOptions;
     const current = workflowRef && workflowEnabled ? (currentOption && "label" in currentOption ? currentOption.label : "") : value || "";
-    const [collapsedSeries, setCollapsedSeries] = useState<Set<string>>(new Set());
+    const [activeSeries, setActiveSeries] = useState<string | null>(null);
     const seriesGroups = useMemo(() => {
         const grouped = new Map<string, PickerOption[]>();
         const ungrouped: PickerOption[] = [];
@@ -72,12 +73,6 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
         }
         return { groups: Array.from(grouped.entries()).map(([label, items]) => ({ label, items })), ungrouped };
     }, [options]);
-    const toggleSeries = (label: string) => setCollapsedSeries((previous) => {
-        const next = new Set(previous);
-        if (next.has(label)) next.delete(label);
-        else next.add(label);
-        return next;
-    });
     const currentValue = current && currentOption ? currentOption.key : "";
 
 	useEffect(() => {
@@ -106,6 +101,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
             open={open}
             value={current ? currentValue : ""}
             onOpenChange={(nextOpen) => {
+                if (!nextOpen) setActiveSeries(null);
                 if (nextOpen && !options.length && config.channelMode === "local") {
                     onMissingConfig?.();
                     return;
@@ -145,38 +141,55 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                 onMouseDown={(event) => event.stopPropagation()}
             >
                 {seriesGroups.groups.length || seriesGroups.ungrouped.length ? (
-                    <>
-                        {seriesGroups.groups.map((group) => {
-                            const collapsed = collapsedSeries.has(group.label);
-                            const items = group.items.map((option) => (
-                                <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
-                                    <ModelLabel model={"workflowRef" in option ? option.workflowRef.workflowId : option.model} label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)} channelName={option.channelName} />
-                                </SelectItem>
-                            ));
-                            if (group.items.length <= 1) return <div key={group.label}>{items}</div>;
+                    activeSeries ? (
+                        (() => {
+                            const group = seriesGroups.groups.find((item) => item.label === activeSeries);
+                            if (!group) return null;
                             return (
-                                <div key={group.label}>
-                                    <div
-                                        role="button"
-                                        tabIndex={-1}
-                                        className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"
-                                        onClick={() => toggleSeries(group.label)}
+                                <>
+                                    <button
+                                        type="button"
+                                        className="mb-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"
+                                        onClick={() => setActiveSeries(null)}
                                         onPointerDown={(event) => event.stopPropagation()}
                                         onMouseDown={(event) => event.stopPropagation()}
                                     >
-                                        <span>{group.label}（{group.items.length}）</span>
-                                        {collapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-                                    </div>
-                                    {!collapsed ? items : null}
-                                </div>
+                                        <ChevronLeft className="size-3.5" />
+                                        <span>{group.label}</span>
+                                        <span className="ml-auto opacity-60">{group.items.length} 个</span>
+                                    </button>
+                                    {group.items.map((option) => (
+                                        <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
+                                            <ModelLabel model={"workflowRef" in option ? option.workflowRef.workflowId : option.model} label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)} channelName={option.channelName} />
+                                        </SelectItem>
+                                    ))}
+                                </>
                             );
-                        })}
-                        {seriesGroups.ungrouped.map((option) => (
-                            <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
-                                <ModelLabel model={"workflowRef" in option ? option.workflowRef.workflowId : option.model} label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)} channelName={option.channelName} />
-                            </SelectItem>
-                        ))}
-                    </>
+                        })()
+                    ) : (
+                        <>
+                            {seriesGroups.groups.map((group) => (
+                                <button
+                                    key={group.label}
+                                    type="button"
+                                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+                                    onClick={() => setActiveSeries(group.label)}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                >
+                                    <span className="min-w-0 flex-1 truncate text-left">{group.label}</span>
+                                    <span className="shrink-0 text-xs text-muted-foreground">{group.items.length} 个</span>
+                                    <span className="shrink-0 text-xs text-muted-foreground">{seriesPriceHint(group.items)}</span>
+                                    <ChevronRight className="size-3.5 shrink-0 opacity-60" />
+                                </button>
+                            ))}
+                            {seriesGroups.ungrouped.map((option) => (
+                                <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
+                                    <ModelLabel model={"workflowRef" in option ? option.workflowRef.workflowId : option.model} label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)} channelName={option.channelName} />
+                                </SelectItem>
+                            ))}
+                        </>
+                    )
                 ) : (
                     <SelectItem value="__empty__" disabled>
                         {config.channelMode === "remote" ? "暂无可用模型" : "请先到配置里拉取模型列表"}
@@ -188,13 +201,24 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
 }
 
 function ModelLabel({ model, label, channelName }: { model: string; label?: string; channelName?: string }) {
+    const price = modelPriceLabel(model);
     return (
         <span className="flex min-w-0 items-center gap-2">
             <ModelIcon model={model} />
             <span className="truncate" title={model}>{label || model}</span>
-            {channelName ? <span className="ml-auto max-w-24 shrink-0 truncate text-xs opacity-50">{channelName}</span> : null}
+            {price ? <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{price}</span> : null}
+            {channelName ? <span className={cn("max-w-20 shrink-0 truncate text-xs opacity-50", !price && "ml-auto")}>{channelName}</span> : null}
         </span>
     );
+}
+
+/** 大类行右侧的价格提示：该类里最便宜的一档。 */
+function seriesPriceHint(items: PickerOption[]) {
+    const prices = items
+        .map((item) => ("workflowRef" in item ? 0 : modelPriceEntry(item.model)?.credits || 0))
+        .filter((value) => value > 0);
+    if (!prices.length) return "";
+    return `最低 ${formatCreditsPrice(Math.min(...prices))}`;
 }
 
 function ModelIcon({ model }: { model: string }) {

@@ -1020,7 +1020,11 @@ async function syncGeneratedImages(images: GeneratedImage[]) {
 async function syncCanvasImageTask(task: CanvasImageTask, resultId = task.started_at): Promise<CanvasImageTask> {
     if (!["completed", "complete", "done", "succeeded", "success"].includes((task.status || "").toLowerCase())) return task;
     const urls = [...new Set([...(task.image_urls || []), task.image_url || task.url || ""].map((url) => url.trim()).filter(Boolean))];
-    const imageStorage = await Promise.all(urls.map((url, index) => autoSyncImage(url, `${task.id}:${resultId}:${index}`, index === 0 ? task.storageKey : undefined)));
+    // 画布内生成：sourceId 就是 projectId，落盘时按项目分目录
+    const projectId = task.source === "canvas"
+        ? (task.source_id || (task as CanvasImageTask & { sourceId?: string }).sourceId || "")
+        : "";
+    const imageStorage = await Promise.all(urls.map((url, index) => autoSyncImage(url, `${task.id}:${resultId}:${index}`, index === 0 ? task.storageKey : undefined, projectId)));
     if (!imageStorage.some(Boolean)) return task;
     const syncedUrls = urls.map((url, index) => imageStorage[index]?.url || url);
     const stored = imageStorage[0];
@@ -1162,17 +1166,28 @@ async function createCanvasImageTaskRequest(config: AiConfig & { seedIndex?: num
         };
     }
     if (references.length && isNanoBananaModel(config.model)) {
-        const inputImageDataUrls = await Promise.all(references.map((image) => imageToDataUrl(image)));
-        const imageBase64 = inputImageDataUrls[0]?.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "") || "";
-        const body: Record<string, unknown> = {
+        const inputImageDataUrls = (await Promise.all(references.map((image) => imageToDataUrl(image)))).filter(Boolean);
+        // 实测（2026-11-23）：grsai 的 /draw/nano-banana 只做文生图，会无视 image 字段
+        // （返回图的比例和内容都与参考图无关，表现为"乱生成"）。
+        // 图生图 / 编辑必须走 chat/completions：带 image_url（dataURL 或公网 URL）实测
+        // 保持原图尺寸、参考图生效，约 18–22 秒。刻意不传 image_config，避免画幅被改。
+        const text = withPromptGuard(config, withSystemPrompt(config, prompt));
+        const body = {
             model: config.model,
-            prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
-            image: imageBase64,
+            messages: [{
+                role: "user",
+                content: [
+                    { type: "text", text },
+                    ...inputImageDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+                ],
+            }],
+            modalities: ["image", "text"],
+            stream: false,
         };
         return {
             method: "POST",
             headers: jsonHeaders,
-            body: JSON.stringify({ endpoint: "/draw/nano-banana", ...meta, request: body }),
+            body: JSON.stringify({ endpoint: "/chat/completions", ...meta, request: body }),
         };
     }
     if (references.length && isGrok2APIImageConfig(config)) {

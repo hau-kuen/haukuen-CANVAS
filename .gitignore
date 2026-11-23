@@ -12,3 +12,4 @@ web/public/InfiniteCanvas-ComfyBridge*
 .idea
 *.exe
 *.exe~
+*.exe.bak*

@@ -373,11 +373,62 @@ var builtinAIProtocols = []aiProtocolAdapter{
 			}
 			input.failureLabel = "Higgsfield image"
 			var err error
-			input.body, input.contentType, err = normalizeHiggsfieldBody(input.body, input.contentType, input.modelName, input.channel)
-			return input, true, err
+			var hasReference bool
+			input.body, input.contentType, hasReference, err = normalizeHiggsfieldBody(input.body, input.contentType, input.modelName, input.channel)
+			if err != nil {
+				return input, true, err
+			}
+			// 带参考图时路由到 image-to-image 端点，否则 standard 文生图
+			if hasReference {
+				name := strings.TrimPrefix(strings.TrimSpace(input.modelName), "/")
+				if strings.Contains(strings.ToLower(name), "soul/v2") {
+					input.path = "/higgsfield-ai/soul/v2/image-to-image"
+				}
+			}
+			return input, true, nil
 		},
 		copyResponse: func(w http.ResponseWriter, response *http.Response, request *http.Request, channel model.ModelChannel, context aiLogContext, onFailure func()) bool {
 			return isHiggsfieldChannel(channel, context.Model) && copyHiggsfieldResponse(w, response, request, channel, context, onFailure)
+		},
+	},
+	{
+		id: service.ModelChannelProtocolGrsaiVideo,
+		path: func(channel model.ModelChannel, modelName string, path string) (string, bool) {
+			if !isGrsaiVideoChannel(channel, modelName) {
+				return path, false
+			}
+			if path == "/videos" {
+				return "/api/generate", true
+			}
+			if strings.HasPrefix(path, "/videos/") && !strings.HasSuffix(path, "/content") {
+				taskID := strings.TrimSpace(strings.TrimPrefix(path, "/videos/"))
+				if taskID != "" && !strings.Contains(taskID, "/") {
+					return "/api/result?id=" + url.PathEscape(taskID), true
+				}
+			}
+			return path, false
+		},
+		prepare: func(input aiProtocolRequest) (aiProtocolRequest, bool, error) {
+			if !isGrsaiVideoChannel(input.channel, input.modelName) {
+				return input, false, nil
+			}
+			if input.endpoint != "/videos" && input.path != "/api/generate" {
+				return input, false, nil
+			}
+			input.failureLabel = "grsai video"
+			body, contentType, err := normalizeGrsaiVideoBody(input.body, input.contentType, input.modelName, input.channel)
+			input.body, input.contentType = body, contentType
+			return input, true, err
+		},
+		videoResponse: func(payload []byte, request *http.Request, channel model.ModelChannel, modelName string, _ bool) ([]byte, bool) {
+			if !isGrsaiVideoChannel(channel, modelName) {
+				return nil, false
+			}
+			path := request.URL.Path
+			if strings.Contains(path, "/api/generate") || strings.Contains(path, "/api/result") {
+				return transformGrsaiVideoResponse(payload, modelName)
+			}
+			return nil, false
 		},
 	},
 	{

@@ -2364,6 +2364,30 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             if (Object.keys(settings).length) useCanvasUiStore.setState((state) => ({
                 generationDefaults: { ...state.generationDefaults, [type]: { ...state.generationDefaults[type], ...settings } },
             }));
+            // 记住这轮选的模型 / 比例 / 张数（及其它生成参数）：
+            // 同步回全局配置，由 zustand persist 落到 localStorage，
+            // 下次新建节点没带参数时直接沿用；用户改了就以新值为准。
+            const updateConfig = useConfigStore.getState().updateConfig;
+            const configPatch: Record<string, string> = {};
+            const safePatch: Record<string, unknown> = (patch || {}) as Record<string, unknown>;
+            if (typeof safePatch.model === "string" && safePatch.model.trim()) {
+                if (type === CanvasNodeType.Image) configPatch.imageModel = safePatch.model;
+                else configPatch.videoModel = safePatch.model;
+            }
+            if (typeof safePatch.channelId === "string" && safePatch.channelId) {
+                if (type === CanvasNodeType.Image) configPatch.imageChannelId = safePatch.channelId;
+                else configPatch.videoChannelId = safePatch.channelId;
+            }
+            if (type === CanvasNodeType.Image) {
+                if (typeof safePatch.size === "string" && safePatch.size) configPatch.size = safePatch.size;
+                if (typeof safePatch.quality === "string" && safePatch.quality) configPatch.quality = safePatch.quality;
+                if (safePatch.count !== undefined && safePatch.count !== null && String(safePatch.count).trim()) configPatch.canvasImageCount = String(safePatch.count);
+            } else {
+                if (typeof safePatch.vquality === "string" && safePatch.vquality) configPatch.vquality = safePatch.vquality;
+                if (typeof safePatch.videoSize === "string" && safePatch.videoSize) configPatch.videoSize = safePatch.videoSize;
+                if (typeof safePatch.seconds === "string" && safePatch.seconds) configPatch.videoSeconds = safePatch.seconds;
+            }
+            for (const [key, value] of Object.entries(configPatch)) updateConfig(key as keyof AiConfig, value);
         }
     }, []);
 

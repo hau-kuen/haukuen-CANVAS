@@ -101,6 +101,29 @@ set "SLEEP=%SystemRoot%\\System32\\timeout.exe"
 set "NS=%SystemRoot%\\System32\\netstat.exe"
 set "FS=%SystemRoot%\\System32\\findstr.exe"
 
+rem ---------- 数据与媒体目录（不随程序目录走，换版本不丢） ----------
+set "APP_DATA=%LOCALAPPDATA%\\InfiniteCanvas"
+if not exist "%APP_DATA%\\data" mkdir "%APP_DATA%\\data"
+if not exist "%APP_DATA%\\data\\infinite-canvas.db" (
+    if exist "%~dp0data\\infinite-canvas.db" (
+        echo       首次运行：初始化数据目录
+        copy /Y "%~dp0data\\infinite-canvas.db" "%APP_DATA%\\data\\" >nul
+    )
+)
+set "DATABASE_DSN=%APP_DATA%\\data\\infinite-canvas.db"
+
+if not defined CANVAS_STORAGE_ROOT (
+    if exist "D:\\" (
+        set "CANVAS_STORAGE_ROOT=D:\\canvas-storage"
+    ) else (
+        set "CANVAS_STORAGE_ROOT=%APP_DATA%\\storage"
+    )
+)
+if not exist "%CANVAS_STORAGE_ROOT%" mkdir "%CANVAS_STORAGE_ROOT%" 2>nul
+
+rem 每天首次启动时备份一次数据库（保留 7 天）
+if exist "%DATABASE_DSN%" powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0backup-db.ps1" -DataDir "%APP_DATA%\\data" -BackupDir "%APP_DATA%\\backup"
+
 echo [1/4] 后端服务 8080
 rem 后端必须用默认 8080，先清掉可能存在的 PORT，免得被前端端口污染
 set "PORT="
@@ -122,6 +145,7 @@ set /a tries+=1
 if %tries% lss 60 goto wait_api
 echo.
 echo  [错误] 后端 60 秒内没起来。请把本窗口截图反馈。
+echo  数据目录：%APP_DATA%
 echo  日志：data\\backend.log、data\\backend.err.log
 pause
 exit /b 1
@@ -164,8 +188,9 @@ if not defined SKIP_BROWSER powershell -NoProfile -ExecutionPolicy Bypass -File 
 echo [4/4] 启动完成
 echo.
 echo   地址：http://127.0.0.1:3000
+echo   数据：%APP_DATA%\\data
+echo   媒体：%CANVAS_STORAGE_ROOT%
 echo   停止：双击 Stop-InfiniteCanvas.bat
-echo   日志：data\\web.log、data\\backend.log
 %SLEEP% /t 5 >nul
 exit /b 0
 """.replace("%VERSION%", VERSION)
@@ -230,6 +255,22 @@ echo 已停止（3000 / 8080 / 3210）。
 """
 
     (OUT / "Stop-InfiniteCanvas.bat").write_bytes(stop.replace("\r\n", "\n").replace("\n", CRLF).encode("gbk", errors="replace"))
+    backup_ps1 = r'''param(
+    [Parameter(Mandatory=$true)][string]$DataDir,
+    [Parameter(Mandatory=$true)][string]$BackupDir
+)
+$ErrorActionPreference = "SilentlyContinue"
+$today = Get-Date -Format "yyyyMMdd"
+$target = Join-Path $BackupDir $today
+if (Test-Path (Join-Path $target "infinite-canvas.db")) { exit 0 }
+New-Item -ItemType Directory -Force -Path $target | Out-Null
+# 连 -wal / -shm 一起复制，单独一个 .db 可能落后于最新写入
+Copy-Item (Join-Path $DataDir "infinite-canvas.db*") -Destination $target -Force
+Get-ChildItem $BackupDir -Directory | Sort-Object Name -Descending | Select-Object -Skip 7 | Remove-Item -Recurse -Force
+exit 0
+'''
+    (OUT / "backup-db.ps1").write_bytes(b"\xef\xbb\xbf" + backup_ps1.replace("\r\n", "\n").replace("\n", CRLF).encode("utf-8"))
+
     # 5) 预置数据库：用 SQLite backup 生成一致性快照（不能直接拷 .db，WAL 还没合并）
     db_src = ROOT / "data" / "infinite-canvas.db"
     if db_src.exists():
@@ -250,9 +291,7 @@ echo 已停止（3000 / 8080 / 3210）。
             if row:
                 cfg = json.loads(row[1])
                 storage = cfg.get("storage") or {}
-                for provider in storage.get("providers") or []:
-                    if provider.get("type") == "local":
-                        provider["rootPath"] = ".\\storage"
+                # 本地存储根目录由启动脚本的 CANVAS_STORAGE_ROOT 决定，这里不动 DB 配置
                 conn.execute("update settings set value=? where key='private'", (json.dumps(cfg, ensure_ascii=False),))
                 conn.commit()
             conn.close()
@@ -378,12 +417,26 @@ exit
 看到「已保存 N 项密钥」就好了。
 以后每次只需要双击 Start-InfiniteCanvas.bat。
 
+【数据保存位置（重要）】
+程序和数据是分开的，换版本、重新解压都不会丢数据：
+
+  数据库：%LOCALAPPDATA%\InfiniteCanvas\data\infinite-canvas.db
+  备份：  %LOCALAPPDATA%\InfiniteCanvas\backup\yyyyMMdd（每天一份，留 7 天）
+  图片：  D:\canvas-storage（没有 D 盘时是 %LOCALAPPDATA%\InfiniteCanvas\storage）
+
+升级方法：直接用新版本的压缩包覆盖程序目录即可，
+不要删除上面这三个位置，工程和图片都还在。
+
+想换图片存放位置：设置系统环境变量 CANVAS_STORAGE_ROOT 指向新目录，
+把旧的 storage 目录整个复制过去即可（数据库只存相对路径，不用改配置）。
+
 【目录说明】
 - infinite-canvas.exe : Go 后端（API、存储、任务调度）
-- web\\               : 前端构建产物
+- web\               : 前端构建产物
 - open-canvas.ps1     : 自动打开画布并带上 Agent 连接参数
+- backup-db.ps1       : 每日数据库备份（启动时自动调用，不用手动跑）
 - Fill-ApiKey.bat     : 双击填 API 密钥（弹窗粘贴，不用进设置页）
-- data\\              : 数据库与日志（首次运行自动创建）
+- data\              : 首次运行用的种子数据，迁移到用户目录后不再使用
 """
     (OUT / "README.txt").write_bytes(readme.replace("\r\n", "\n").replace("\n", CRLF).encode("utf-8-sig"))
     log("[7/7] README 已写入")

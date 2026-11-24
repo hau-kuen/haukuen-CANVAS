@@ -18,7 +18,12 @@ import (
 const defaultLocalStorageRoot = "data/storage"
 
 // localStorageRoot 返回本地存储根目录（已清理路径）。
+// 优先级：CANVAS_STORAGE_ROOT 环境变量 > provider 配置 > 默认目录。
+// 环境变量优先是为了便于部署时把媒体目录指到别的盘或 NAS 挂载点，不改数据库配置。
 func localStorageRoot(provider model.StorageProvider) string {
+	if envRoot := strings.TrimSpace(os.Getenv("CANVAS_STORAGE_ROOT")); envRoot != "" {
+		return filepath.Clean(envRoot)
+	}
 	root := strings.TrimSpace(provider.RootPath)
 	if root == "" {
 		root = defaultLocalStorageRoot

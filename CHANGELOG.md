@@ -28,6 +28,14 @@
 + [优化] 优化 Soul 2.0 提示词规范，五个 Soul 摄影 Skill 与画布 Agent 统一按模型实际能力写词
 + [新增] Higgsfield Soul 2.0 参考图支持：画布参考图自动上传 Higgsfield CDN 并路由到 image-to-image 端点（修复摄影作品做风格参考不生效的问题）
 
+## v0.8.7 - 2026-11-24
+
++ [调整] 数据与程序分离：数据库不再放在程序目录，改到 `%LOCALAPPDATA%\InfiniteCanvas\data`，升级/覆盖安装不会丢工程
++ [调整] 媒体根目录改由 `CANVAS_STORAGE_ROOT` 环境变量决定（优先级高于数据库配置），启动脚本自动选 `D:\canvas-storage`，没有 D 盘则落到用户目录
++ [新增] 每天首次启动自动备份数据库到 `%LOCALAPPDATA%\InfiniteCanvas\backup\yyyyMMdd`，保留最近 7 天（含 -wal/-shm）
++ [新增] 首次运行自动把包内预置数据库迁移到用户目录，之后换版本不再覆盖数据
++ [修复] 便携版启动链路详见 v0.8.6
+
 ## v0.8.6 - 2026-11-24
 
 + [修复] 便携版启动失败：启动脚本用 `set PORT=3000 && set HOSTNAME=0.0.0.0 && node ...` 拼接环境变量，cmd 会把 `&&` 前的空格一并写进值，`HOSTNAME` 变成 `"0.0.0.0 "`，Next 的 `getaddrinfo` 解析失败后进程直接退出，3000 端口永远起不来

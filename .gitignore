@@ -13,3 +13,6 @@ web/public/InfiniteCanvas-ComfyBridge*
 *.exe
 *.exe~
 *.exe.bak*
+
+__pycache__/
+*.pyc

@@ -45,3 +45,9 @@ description: 当前项目后续值得处理的事项
 - 新增 `web/src/lib/config-backup.ts` + `web/src/components/layout/config-backup-panel.tsx`：API 配置备份与恢复。导出 JSON 文件（ASCII 文件名 `canvas-api-backup-YYYYMMDD-HHmm.json`）、复制 JSON、粘贴/选文件导入、本机自动快照（localStorage `infinite-canvas:api-config-snapshots`，最多 8 份，内容相同只刷新时间）。恢复前自动给当前配置留快照，可退回；导入兼容本功能导出格式、裸渠道数组、旧版 `{state:{config:{localChannels}}}`。
 - 改 `client-root-init.tsx`：订阅 configStore，渠道/Key/选型变化 1.5s 防抖后写快照，清缓存或换版本后可退回。
 - 拉上游后冲突点就在 `app-config-modal.tsx` 的渠道列表区块，参考本地版本重新合并。
+
+## 上游整合记录
+
+- 2026-11-23 合并 PR #2 `cursor/canvas-agent-skill-discovery-084d`（grokbot 做的画布 Agent 按需加载 Skill）：10 文件 +567/-30，零冲突。新增 `canvas-agent-skill-catalog.ts` + 测试（bun test 8 pass），改 `canvas-agent-runtime.ts`、`canvas-agent-skills.ts`、`canvas-agent-tools.ts`、`skills/core.ts`、`use-codex-agent.ts`、`canvas-assistant-panel.tsx`。与本地 API 配置改动无文件重叠。
+- 升级前备份放 `data/backups/20261123-2351-api-pre-upgrade/`（DB 快照 + .env + Chrome localStorage 原始 .ldb + 导出 JSON），说明见该目录 README.md。
+- 新增 `scripts/extract-chrome-localstorage.py`：解析 Chrome/Edge 的 Local Storage LevelDB（自带 snappy 解压），把 localStorage 导出成 JSON，用于升级前后核对 API 渠道是否还在。渠道真实存放位置是 `infinite-canvas:ai_config_store` → `state.config.localChannels`，不在后端库。

@@ -247,6 +247,12 @@ func ProxyImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	// 上游明确说图片没了（临时图床过期、文件被清理）时如实返回 404，
+	// 让前端能区分「图真的失效」和「网络/代理出问题」，不再一律 502。
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		FailWithStatus(w, http.StatusNotFound, "源图片已失效（上游返回 "+resp.Status+"）")
+		return
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		FailWithStatus(w, http.StatusBadGateway, "代理图片请求失败: "+resp.Status)
 		return

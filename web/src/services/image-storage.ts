@@ -575,7 +575,9 @@ export async function imageToDataUrl(image: { url?: string; dataUrl?: string; st
             const proxyUrl = getProxyUrl(url);
             const response = await fetch(proxyUrl);
             if (!response.ok) {
-                lastError = `读取参考图失败：${response.status}`;
+                lastError = response.status === 404
+                    ? "原图已失效（第三方链接过期或文件被清理），请重新生成"
+                    : `读取参考图失败：${response.status}`;
                 continue;
             }
             return blobToDataUrl(await response.blob());

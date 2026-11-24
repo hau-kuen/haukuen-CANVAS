@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { Tooltip } from "antd";
-import { ChevronRight, Image as ImageIcon, Maximize2, Music2, Pause, Play, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronRight, Image as ImageIcon, ImageOff, Maximize2, Music2, Pause, Play, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { pickImageSource } from "@/lib/image-thumbnail";
@@ -816,6 +816,8 @@ function ImageContent({
     const previewKey = `canvas-node:${projectId}:${node.id}`;
     const previewSource = `${node.metadata?.primaryImageId || ""}:${node.metadata?.imageTaskResultId || ""}:${storageKey || content}`;
     const hasNaturalSize = Boolean(node.metadata?.naturalWidth && node.metadata?.naturalHeight);
+    // 原图链接失效（第三方图床过期、文件被清理）时降级成占位，不要把浏览器默认破图标留给用户
+    const [imageBroken, setImageBroken] = useState(false);
 
     useSyncExternalStore(subscribeImagePreviews, getImagePreviewRevision, getImagePreviewRevision);
 
@@ -829,14 +831,29 @@ function ImageContent({
         scale,
     });
 
+    // 换图（重新生成、切批次主图）后重新给一次加载机会
+    useEffect(() => {
+        setImageBroken(false);
+    }, [imageSource]);
+
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
             <div className="h-full w-full overflow-hidden rounded-3xl">
-                {media ?? (
+                {media ?? (imageBroken ? (
+                    <div
+                        className="flex h-full w-full flex-col items-center justify-center gap-1.5 px-4 text-center"
+                        style={{ background: theme.toolbar.panel, color: theme.node.text }}
+                    >
+                        <ImageOff className="size-7 opacity-35" />
+                        <div className="text-xs font-medium opacity-70">图片已失效</div>
+                        <div className="text-[11px] leading-4 opacity-45">原图链接已不可用，可在下方提示词面板重新生成</div>
+                    </div>
+                ) : (
                     <img
                         src={imageSource}
                         alt={node.title}
                         draggable={false}
+                        onError={() => setImageBroken(true)}
                         onLoad={(event) => {
                             const image = event.currentTarget;
                             if (imageSource === content && image.currentSrc === image.src) onResize?.(node.id, image.naturalWidth, image.naturalHeight, undefined, node);
@@ -844,7 +861,7 @@ function ImageContent({
                         onDragStart={(event) => event.preventDefault()}
                         className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
                     />
-                )}
+                ))}
             </div>
             {isBatchRoot ? (
                 <button

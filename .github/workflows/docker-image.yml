@@ -9,20 +9,22 @@ permissions:
   contents: read
   packages: write
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
-
 jobs:
   meta:
     runs-on: ubuntu-latest
     outputs:
       tags: ${{ steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
+      image: ${{ steps.img.outputs.name }}
     steps:
+      # ghcr 镜像名必须全小写；github.repository 是 haukuen-CANVAS，含大写会被 docker 拒绝。
+      - id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ steps.img.outputs.name }}
           tags: |
             type=ref,event=tag
             type=sha,prefix=
@@ -30,6 +32,8 @@ jobs:
   build:
     needs: meta
     runs-on: ${{ matrix.runner }}
+    env:
+      IMAGE_NAME: ${{ needs.meta.outputs.image }}
     strategy:
       fail-fast: false
       matrix:

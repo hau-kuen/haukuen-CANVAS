@@ -44,12 +44,12 @@ def main():
     if not exe_src.exists():
         exe_src = ROOT / "infinite-canvas.exe"
     shutil.copy2(exe_src, OUT / "infinite-canvas.exe")
-    log(f"[1/6] 后端 exe: {exe_src.name} -> {OUT.name}/infinite-canvas.exe")
+    log(f"[1/7] 后端 exe: {exe_src.name} -> {OUT.name}/infinite-canvas.exe")
 
     # 2) Next standalone（含 server.js 与依赖）
     app_dir = OUT / "web"
     copy_tree(standalone, app_dir)
-    log(f"[2/6] 前端 standalone 复制完成")
+    log(f"[2/7] 前端 standalone 复制完成")
 
     # 3) standalone 缺的两块：静态资源与 public
     copy_tree(NEXT / "static", app_dir / ".next" / "static")
@@ -64,7 +64,7 @@ def main():
             shutil.move(str(item), str(target))
         nested.rmdir()
         log("  修正了嵌套的 web/ 目录")
-    log(f"[3/6] 静态资源与 public 就位")
+    log(f"[3/7] 静态资源与 public 就位")
 
     # 4) 启动脚本（GBK + CRLF，Windows cmd 才不闪退）
     bat = """@echo off
@@ -129,7 +129,7 @@ else { $target = "http://127.0.0.1:$webPort/canvas$hash" }
 Start-Process $target
 """
     (OUT / "open-canvas.ps1").write_bytes(b"\xef\xbb\xbf" + opener.replace("\n", "\r\n").encode("utf-8"))
-    log("[4/6] 启动/停止/打开画布脚本已写入（bat GBK+CRLF，ps1 UTF-8 BOM）")
+    log("[4/7] 启动/停止/打开画布脚本已写入（bat GBK+CRLF，ps1 UTF-8 BOM）")
 
     stop = """@echo off
 chcp 936 >nul
@@ -168,11 +168,101 @@ timeout /t 2 >nul
             conn.close()
         except Exception as exc:
             log(f"  存储路径改写跳过：{exc}")
-        log(f"[5/6] 预置数据库 {db_dst.stat().st_size/1024/1024:.1f} MB（含模型配置与画布）")
+        # 清空 API Key：包要发给别人，不能带自己的密钥；其余配置（渠道、模型选择、画布）保留
+        try:
+            conn = sqlite3.connect(str(db_dst))
+            row = conn.execute("select user_id, model_config from user_configs").fetchone()
+            if row:
+                mc = json.loads(row[1])
+                cleared = 0
+                for ch in mc.get("localChannels") or []:
+                    if (ch.get("apiKey") or "").strip():
+                        ch["apiKey"] = ""
+                        cleared += 1
+                mc["apiKey"] = ""
+                conn.execute("update user_configs set model_config=? where user_id=?",
+                             (json.dumps(mc, ensure_ascii=False), row[0]))
+                conn.commit()
+                log(f"      已清空 {cleared} 个渠道的 API Key（分发包不带密钥）")
+            conn.close()
+        except Exception as exc:
+            log(f"  清空密钥跳过：{exc}")
+        log(f"[5/7] 预置数据库 {db_dst.stat().st_size/1024/1024:.1f} MB（含渠道与画布，无密钥）")
     else:
-        log("[5/6] 未找到 data/infinite-canvas.db，跳过预置（首次启动会建空库）")
+        log("[5/7] 未找到 data/infinite-canvas.db，跳过预置（首次启动会建空库）")
 
-    # 6) 说明
+    # 6) 填密钥工具：双击弹窗粘贴，不必进设置页
+    fill_ps1 = r'''$ErrorActionPreference = "Continue"
+Add-Type -AssemblyName Microsoft.VisualBasic
+$apiPort = 8080
+
+function Tip($msg, $title) {
+    [void][Microsoft.VisualBasic.Interaction]::MsgBox($msg, 0, $title)
+}
+function Ask($msg, $title) {
+    return [Microsoft.VisualBasic.Interaction]::InputBox($msg, $title, "")
+}
+
+$ready = $false
+for ($i = 0; $i -lt 40; $i++) {
+    try {
+        Invoke-RestMethod -Uri "http://127.0.0.1:$apiPort/api/health" -TimeoutSec 2 | Out-Null
+        $ready = $true
+        break
+    } catch { Start-Sleep -Milliseconds 800 }
+}
+if (-not $ready) {
+    Tip "请先双击 Start-InfiniteCanvas.bat 启动服务，再运行本工具。" "服务未启动"
+    exit 1
+}
+
+try {
+    $login = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$apiPort/api/auth/auto-login" -ContentType "application/json" -Body "{}" -TimeoutSec 15
+    $headers = @{ Authorization = "Bearer " + $login.data.token }
+    $cfg = (Invoke-RestMethod -Uri "http://127.0.0.1:$apiPort/api/v1/user-config" -Headers $headers -TimeoutSec 20).data.modelConfig
+} catch {
+    Tip ("读取配置失败：" + $_.Exception.Message) "出错了"
+    exit 1
+}
+
+$grsaiKey = Ask "第 1 步 / 共 2 步`n`n请粘贴 grsai 的 API Key（以 sk- 开头，用于出图与视频）。`n没有就留空点确定。" "填写密钥 1/2：grsai"
+$deepseekKey = Ask "第 2 步 / 共 2 步`n`n请粘贴 DeepSeek 的 API Key（以 sk- 开头，用于画布对话）。`n没有就留空点确定。" "填写密钥 2/2：DeepSeek"
+
+$grsaiKey = "$grsaiKey".Trim()
+$deepseekKey = "$deepseekKey".Trim()
+if (-not $grsaiKey -and -not $deepseekKey) {
+    Tip "没有填写任何密钥，已取消。" "已取消"
+    exit 0
+}
+
+$changed = 0
+foreach ($ch in $cfg.localChannels) {
+    if ($ch.id -eq "grsai" -and $grsaiKey) { $ch.apiKey = $grsaiKey; $changed++ }
+    elseif ($ch.id -eq "grsai-video" -and $grsaiKey) { $ch.apiKey = $grsaiKey; $changed++ }
+    elseif ($ch.id -eq "deepseek" -and $deepseekKey) { $ch.apiKey = $deepseekKey; $changed++ }
+}
+
+try {
+    $body = @{ config = $cfg } | ConvertTo-Json -Depth 30
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+    Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$apiPort/api/v1/user-config/model" -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bytes -TimeoutSec 40 | Out-Null
+    Tip ("已保存 " + $changed + " 项密钥。`n`n现在可以回到画布开始生成图片了。") "完成"
+} catch {
+    Tip ("保存失败：" + $_.Exception.Message) "出错了"
+}
+'''
+    (OUT / "fill-apikey.ps1").write_bytes(b"\xef\xbb\xbf" + fill_ps1.replace("\n", "\r\n").encode("utf-8"))
+    fill_bat = """@echo off
+chcp 936 >nul
+title 填写 API 密钥
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0fill-apikey.ps1"
+exit
+"""
+    (OUT / "Fill-ApiKey.bat").write_bytes(fill_bat.replace("\n", "\r\n").encode("gbk", errors="replace"))
+    log("[6/7] 填密钥工具已写入（Fill-ApiKey.bat + fill-apikey.ps1）")
+
+    # 7) 说明
     readme = f"""无限画布 {VERSION} 便携版
 ==============================
 
@@ -189,21 +279,24 @@ timeout /t 2 >nul
 本机需要安装 Node.js 20 或更高版本（前端靠它运行）。
 如果没装，去 https://nodejs.org 下载 LTS 版，一路下一步即可。
 
-【首次部署（仅管理员做一次）】
-1. 打开后进入「设置」
-2. 填入 grsai、DeepSeek 等服务商的 API Key
-3. 保存
+【第一次使用：填一次密钥（只做一次）】
+1. 先双击 Start-InfiniteCanvas.bat（服务启动，画布自动打开）
+2. 再双击 Fill-ApiKey.bat
+3. 弹出的窗口里粘贴 grsai 的 API Key，点确定
+4. 再粘贴 DeepSeek 的 API Key（没有就留空），点确定
 
-填好之后，日常使用的人只需要双击 Start-InfiniteCanvas.bat。
+看到「已保存 N 项密钥」就好了。
+以后每次只需要双击 Start-InfiniteCanvas.bat。
 
 【目录说明】
 - infinite-canvas.exe : Go 后端（API、存储、任务调度）
 - web\\               : 前端构建产物
 - open-canvas.ps1     : 自动打开画布并带上 Agent 连接参数
+- Fill-ApiKey.bat     : 双击填 API 密钥（弹窗粘贴，不用进设置页）
 - data\\              : 数据库与日志（首次运行自动创建）
 """
     (OUT / "README.txt").write_bytes(readme.replace("\n", "\r\n").encode("utf-8-sig"))
-    log("[6/6] README 已写入")
+    log("[7/7] README 已写入")
 
     # zip
     zip_path = ROOT / "dist" / f"{NAME}.zip"

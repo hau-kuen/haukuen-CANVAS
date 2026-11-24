@@ -80,17 +80,54 @@ curl -s -o nul http://127.0.0.1:8080/api/health
 if errorlevel 1 goto waitapi
 echo       后端已就绪
 
-echo [3/3] 启动前端 (3000)...
+echo [3/3] 启动前端并打开画布 (3000)...
 start "" /min cmd /c "set PORT=3000 && set HOSTNAME=0.0.0.0 && node web\\server.js"
-timeout /t 3 /nobreak >nul
-start "" http://127.0.0.1:3000
+timeout /t 4 /nobreak >nul
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0open-canvas.ps1"
 
 echo.
-echo 无限画布已启动：http://127.0.0.1:3000
-echo 关闭此窗口不会停止服务；要停止请运行 Stop-InfiniteCanvas.bat
+echo 已启动：画布会在浏览器里自动打开
+echo 关闭窗口不会停止服务；要停止请运行 Stop-InfiniteCanvas.bat
 timeout /t 5 >nul
 """.replace("%VERSION%", VERSION)
     (OUT / "Start-InfiniteCanvas.bat").write_bytes(bat.replace("\n", "\r\n").encode("gbk", errors="replace"))
+
+    # 打开画布的小脚本：取最近画布 + 带上 Agent 连接参数，使用者无需任何配置
+    opener = """$ErrorActionPreference = "SilentlyContinue"
+$apiPort = 8080
+$webPort = 3000
+$agentPort = 3210
+
+$agentUrl = "http://127.0.0.1:$agentPort"
+$agentToken = ""
+$agentCfg = Join-Path $env:USERPROFILE ".infinite-canvas\\codex-agent.json"
+if (Test-Path $agentCfg) {
+    try {
+        $cfg = Get-Content -Path $agentCfg -Raw | ConvertFrom-Json
+        if ($cfg.token) { $agentToken = [string]$cfg.token }
+        if ($cfg.url) { $agentUrl = [string]$cfg.url }
+    } catch { }
+}
+
+$canvasId = ""
+try {
+    $login = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$apiPort/api/auth/auto-login" -ContentType "application/json" -Body "{}" -TimeoutSec 10
+    $headers = @{ Authorization = "Bearer " + $login.data.token }
+    $projects = Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:$apiPort/api/v1/canvas/projects" -Headers $headers -TimeoutSec 10
+    if ($projects.data -and @($projects.data).Count -gt 0) { $canvasId = [string](@($projects.data)[0].id) }
+} catch { }
+
+$hash = ""
+$agentUp = (Get-NetTCPConnection -LocalPort $agentPort -State Listen -ErrorAction SilentlyContinue) -ne $null
+if ($agentToken -and $agentUp) {
+    $hash = "#agentUrl=" + [System.Uri]::EscapeDataString($agentUrl) + "&agentToken=" + $agentToken
+}
+if ($canvasId) { $target = "http://127.0.0.1:$webPort/canvas/$canvasId$hash" }
+else { $target = "http://127.0.0.1:$webPort/canvas$hash" }
+Start-Process $target
+"""
+    (OUT / "open-canvas.ps1").write_bytes(b"\xef\xbb\xbf" + opener.replace("\n", "\r\n").encode("utf-8"))
+    log("[4/5] 启动/停止/打开画布脚本已写入（bat GBK+CRLF，ps1 UTF-8 BOM）")
 
     stop = """@echo off
 chcp 936 >nul
@@ -107,21 +144,30 @@ timeout /t 2 >nul
     readme = f"""无限画布 {VERSION} 便携版
 ==============================
 
-启动：双击 Start-InfiniteCanvas.bat
+【怎么用】
+双击 Start-InfiniteCanvas.bat
+→ 服务自动启动
+→ 浏览器自动打开画布，Agent 已自动连好
+不需要做任何配置。
+
 停止：双击 Stop-InfiniteCanvas.bat
-访问：http://127.0.0.1:3000
+手动访问：http://127.0.0.1:3000
 
-前置要求
-- 需要本机已安装 Node.js 20+（前端用它跑）
-- 后端数据默认写在同目录 data\\ 下
+【前置要求】
+本机需要安装 Node.js 20 或更高版本（前端靠它运行）。
+如果没装，去 https://nodejs.org 下载 LTS 版，一路下一步即可。
 
-首次使用
-1. 打开后在设置里填 grsai / DeepSeek 的 API Key
-2. 图片存储默认落 D:\\canvas-storage，可在设置里改
+【首次部署（仅管理员做一次）】
+1. 打开后进入「设置」
+2. 填入 grsai、DeepSeek 等服务商的 API Key
+3. 保存
 
-目录说明
+填好之后，日常使用的人只需要双击 Start-InfiniteCanvas.bat。
+
+【目录说明】
 - infinite-canvas.exe : Go 后端（API、存储、任务调度）
-- web\\               : 前端 standalone 构建产物
+- web\\               : 前端构建产物
+- open-canvas.ps1     : 自动打开画布并带上 Agent 连接参数
 - data\\              : 数据库与日志（首次运行自动创建）
 """
     (OUT / "README.txt").write_bytes(readme.replace("\n", "\r\n").encode("utf-8-sig"))

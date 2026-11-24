@@ -128,9 +128,38 @@ if ((Get-PortPid $agentPort) -gt 0) {
     if ((Get-PortPid $agentPort) -gt 0) { Say "      已启动" "Green" } else { Say "      启动失败，见 data\widget-canvas-agent.log" "Red" }
 }
 
+# ---------- 直接进画布（连带把 Agent 连接参数带上，使用者无需配置） ----------
+function Open-CanvasApp {
+    $agentUrl = "http://127.0.0.1:$agentPort"
+    $agentToken = ""
+    $agentCfg = Join-Path $env:USERPROFILE ".infinite-canvas\codex-agent.json"
+    if (Test-Path $agentCfg) {
+        try {
+            $cfg = Get-Content -Path $agentCfg -Raw | ConvertFrom-Json
+            if ($cfg.token) { $agentToken = [string]$cfg.token }
+            if ($cfg.url) { $agentUrl = [string]$cfg.url }
+        } catch { }
+    }
+    $canvasId = ""
+    try {
+        $login = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$apiPort/api/auth/auto-login" -ContentType "application/json" -Body "{}" -TimeoutSec 10
+        $headers = @{ Authorization = "Bearer " + $login.data.token }
+        $projects = Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:$apiPort/api/v1/canvas/projects" -Headers $headers -TimeoutSec 10
+        if ($projects.data -and @($projects.data).Count -gt 0) { $canvasId = [string](@($projects.data)[0].id) }
+    } catch { }
+    $hash = ""
+    if ($agentToken -and ((Get-PortPid $agentPort) -gt 0)) {
+        $hash = "#agentUrl=" + [System.Uri]::EscapeDataString($agentUrl) + "&agentToken=" + $agentToken
+    }
+    if ($canvasId) { $target = "http://127.0.0.1:$webPort/canvas/$canvasId$hash" }
+    else { $target = "http://127.0.0.1:$webPort/canvas$hash" }
+    Start-Process $target
+    Say "已打开画布 $target" "Green"
+}
+
 # ---------- 开浏览器 ----------
 if (Test-WebMine) {
-    if (-not $NoBrowser) { Start-Process $webUrl; Say "已打开 $webUrl" "Green" }
+    if (-not $NoBrowser) { Open-CanvasApp }
     else { Say "已就绪（未打开浏览器）" "Green" }
 } else {
     Say "前端没起来，先看 data\web-dev.log" "Red"

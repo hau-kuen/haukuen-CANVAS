@@ -2,8 +2,10 @@
 
 前置：web/.next/standalone 已由 `npx next build` 生成（next.config 里 output: "standalone"）。
 """
+import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import zipfile
 from pathlib import Path
@@ -42,12 +44,12 @@ def main():
     if not exe_src.exists():
         exe_src = ROOT / "infinite-canvas.exe"
     shutil.copy2(exe_src, OUT / "infinite-canvas.exe")
-    log(f"[1/5] 后端 exe: {exe_src.name} -> {OUT.name}/infinite-canvas.exe")
+    log(f"[1/6] 后端 exe: {exe_src.name} -> {OUT.name}/infinite-canvas.exe")
 
     # 2) Next standalone（含 server.js 与依赖）
     app_dir = OUT / "web"
     copy_tree(standalone, app_dir)
-    log(f"[2/5] 前端 standalone 复制完成")
+    log(f"[2/6] 前端 standalone 复制完成")
 
     # 3) standalone 缺的两块：静态资源与 public
     copy_tree(NEXT / "static", app_dir / ".next" / "static")
@@ -62,7 +64,7 @@ def main():
             shutil.move(str(item), str(target))
         nested.rmdir()
         log("  修正了嵌套的 web/ 目录")
-    log(f"[3/5] 静态资源与 public 就位")
+    log(f"[3/6] 静态资源与 public 就位")
 
     # 4) 启动脚本（GBK + CRLF，Windows cmd 才不闪退）
     bat = """@echo off
@@ -127,7 +129,7 @@ else { $target = "http://127.0.0.1:$webPort/canvas$hash" }
 Start-Process $target
 """
     (OUT / "open-canvas.ps1").write_bytes(b"\xef\xbb\xbf" + opener.replace("\n", "\r\n").encode("utf-8"))
-    log("[4/5] 启动/停止/打开画布脚本已写入（bat GBK+CRLF，ps1 UTF-8 BOM）")
+    log("[4/6] 启动/停止/打开画布脚本已写入（bat GBK+CRLF，ps1 UTF-8 BOM）")
 
     stop = """@echo off
 chcp 936 >nul
@@ -138,9 +140,39 @@ echo 已停止。
 timeout /t 2 >nul
 """
     (OUT / "Stop-InfiniteCanvas.bat").write_bytes(stop.replace("\n", "\r\n").encode("gbk", errors="replace"))
-    log("[4/5] 启动/停止脚本（GBK+CRLF）已写入")
+    # 5) 预置数据库：用 SQLite backup 生成一致性快照（不能直接拷 .db，WAL 还没合并）
+    db_src = ROOT / "data" / "infinite-canvas.db"
+    if db_src.exists():
+        data_dir = OUT / "data"
+        data_dir.mkdir(exist_ok=True)
+        db_dst = data_dir / "infinite-canvas.db"
+        if db_dst.exists():
+            db_dst.unlink()
+        src = sqlite3.connect(f"file:{db_src}?mode=ro", uri=True)
+        dst = sqlite3.connect(str(db_dst))
+        src.backup(dst)
+        dst.close()
+        src.close()
+        # 顺手把存储根目录改到便携目录下，换机器也能用
+        try:
+            conn = sqlite3.connect(str(db_dst))
+            row = conn.execute("select key, value from settings where key='private'").fetchone()
+            if row:
+                cfg = json.loads(row[1])
+                storage = cfg.get("storage") or {}
+                for provider in storage.get("providers") or []:
+                    if provider.get("type") == "local":
+                        provider["rootPath"] = ".\\storage"
+                conn.execute("update settings set value=? where key='private'", (json.dumps(cfg, ensure_ascii=False),))
+                conn.commit()
+            conn.close()
+        except Exception as exc:
+            log(f"  存储路径改写跳过：{exc}")
+        log(f"[5/6] 预置数据库 {db_dst.stat().st_size/1024/1024:.1f} MB（含模型配置与画布）")
+    else:
+        log("[5/6] 未找到 data/infinite-canvas.db，跳过预置（首次启动会建空库）")
 
-    # 5) 说明
+    # 6) 说明
     readme = f"""无限画布 {VERSION} 便携版
 ==============================
 
@@ -171,7 +203,7 @@ timeout /t 2 >nul
 - data\\              : 数据库与日志（首次运行自动创建）
 """
     (OUT / "README.txt").write_bytes(readme.replace("\n", "\r\n").encode("utf-8-sig"))
-    log("[5/5] README 已写入")
+    log("[6/6] README 已写入")
 
     # zip
     zip_path = ROOT / "dist" / f"{NAME}.zip"

@@ -120,6 +120,19 @@ ok("备份说明原配置不被覆盖", /升级不覆盖/.test(backupFn));
 ok("托盘 tooltip 带版本号", /setToolTip\(`Canvas Agent v\$\{app\.getVersion\(\)\}/.test(main));
 ok("托盘菜单首行显示版本", /label: `Canvas Agent v\$\{app\.getVersion\(\)\}`/.test(main));
 
+/* ---------- 存活探针不能把 401 当死亡 ---------- */
+const probeFn = main.slice(main.indexOf("function probeHealth"), main.indexOf("function startHealthCheck"));
+ok("探针不再只认 200", !/ok:\s*res\.statusCode === 200/.test(probeFn), "又退回了只认 200");
+ok("探针把 401 也算存活", /statusCode < 500/.test(probeFn));
+ok("探针应答非 JSON 不算死亡", /非 JSON 也说明端口通了/.test(probeFn));
+
+/* ---------- 故障可取证 ---------- */
+ok("日志落盘", /function appendLogFile/.test(main) && /appendFileSync\(file/.test(main));
+ok("日志有体积上限轮转", /renameSync\(file, file \+ "\.1"\)/.test(main));
+ok("日志路径暴露给界面", /logPath:\s*logFile\(\)/.test(main));
+ok("端口占用翻译成人话", /EADDRINUSE/.test(main) && /已被其他程序占用/.test(main));
+ok("启动记录环境快照", /electron \$\{process\.versions\.electron\}/.test(main));
+
 /* ---------- 版本号一致 ---------- */
 const lock = JSON.parse(read("package-lock.json"));
 ok(

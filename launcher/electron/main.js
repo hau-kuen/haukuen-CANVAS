@@ -92,12 +92,34 @@ function saveSettings() {
 
 /* ---------- 日志 ---------- */
 
+function logFile() {
+    return path.join(app.getPath("userData"), "logs", "launcher.log");
+}
+
+// 日志必须落盘：装机环境出问题时，内存日志关掉就没了，等于没有取证。
+function appendLogFile(row) {
+    try {
+        const file = logFile();
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        try {
+            if (fs.statSync(file).size > 1_000_000) fs.renameSync(file, file + ".1");
+        } catch {
+            /* 首次写入 */
+        }
+        fs.appendFileSync(file, row + "\n", "utf8");
+    } catch {
+        /* 落盘失败不影响运行 */
+    }
+}
+
 function pushLog(line) {
     const text = redact(String(line)).replace(/\r/g, "").trimEnd();
     if (!text) return;
     const stamp = new Date().toLocaleTimeString("zh-CN", { hour12: false });
     for (const single of text.split("\n")) {
-        state.logs.push(`${stamp}  ${single}`);
+        const row = `${stamp}  ${single}`;
+        state.logs.push(row);
+        appendLogFile(row);
     }
     if (state.logs.length > MAX_LOG_LINES) state.logs.splice(0, state.logs.length - MAX_LOG_LINES);
     send("log", state.logs.slice(-40));
@@ -131,6 +153,7 @@ function publicState() {
         pid: state.pid,
         error: state.error,
         startedAt: state.startedAt,
+        logPath: logFile(),
         endpoint: `http://127.0.0.1:${state.port}`,
         hasToken: Boolean(token),
         // 明文 token / link 不出主进程：复制走 IPC
@@ -243,7 +266,12 @@ function startServer() {
     state.pid = serverProc.pid;
 
     serverProc.stdout.on("data", (chunk) => pushLog(chunk.toString()));
-    serverProc.stderr.on("data", (chunk) => pushLog(chunk.toString()));
+    let stderrBuf = "";
+    serverProc.stderr.on("data", (chunk) => {
+        const text = chunk.toString();
+        stderrBuf = (stderrBuf + text).slice(-8192);
+        pushLog(text);
+    });
     serverProc.on("error", (error) => {
         state.status = "error";
         state.error = error.message;
@@ -257,9 +285,16 @@ function startServer() {
         serverProc = null;
         state.pid = null;
         stopHealthCheck();
+        // 端口被占用时服务会立刻退出，报错藏在 stderr 里，必须翻译成人话。
+        const occupied = /EADDRINUSE|address already in use|已在使用|通常每个套接字地址/i.test(stderrBuf);
         if (state.status !== "stopping" && state.status !== "stopped") {
             state.status = code === 0 ? "stopped" : "error";
-            if (code !== 0) state.error = `服务异常退出（code ${code}）`;
+            if (occupied) {
+                state.error = `端口 ${state.port} 已被其他程序占用，请关闭占用程序或改端口后重试`;
+                pushLog("[launcher] " + state.error);
+            } else if (code !== 0) {
+                state.error = `服务异常退出（code ${code}），详情见日志：${logFile()}`;
+            }
         } else {
             state.status = "stopped";
         }
@@ -334,12 +369,16 @@ function probeHealth() {
                 let body = "";
                 res.on("data", (c) => (body += c));
                 res.on("end", () => {
+                    // 服务带 token 鉴权：无凭证访问 /config 返回 401，这恰恰证明端口是通的。
+                    // 用 200 当唯一存活标准会让界面永远卡在"未就绪"。
+                    const alive = typeof res.statusCode === "number" && res.statusCode < 500;
+                    let data = null;
                     try {
-                        const data = JSON.parse(body);
-                        resolve({ ok: res.statusCode === 200, data });
+                        data = JSON.parse(body);
                     } catch {
-                        resolve({ ok: false });
+                        /* 非 JSON 也说明端口通了 */
                     }
+                    resolve({ ok: alive, data });
                 });
             },
         );
@@ -585,6 +624,11 @@ if (!gotLock) {
     app.whenReady().then(() => {
         loadSettings();
         configPath = agentConfigPath();
+        // 环境快照：装机环境出问题时，这几行决定能不能远程定位。
+        pushLog(
+            `[launcher] v${app.getVersion()} · ${process.platform}/${process.arch} · electron ${process.versions.electron} · node ${process.versions.node}`,
+        );
+        pushLog(`[launcher] 入口 ${serverEntry()} · 配置 ${configPath} · 安装目录 ${path.dirname(process.execPath)}`);
         ensureUpgradeBackup();
         registerIpc();
         createWindow();

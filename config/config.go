@@ -23,6 +23,10 @@ type Config struct {
 	LinuxDoTokenURL     string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`
 	LinuxDoUserInfoURL  string `env:"LINUX_DO_USERINFO_URL" envDefault:"https://connect.linux.do/api/user"`
 	AILogDir            string `env:"AI_LOG_DIR" envDefault:"data/logs/ai-calls"`
+	// 文件访问签名：默认关闭，开启后 /api/files/:id/content 必须带 exp+sig
+	URLSignKey           string `env:"URL_SIGN_KEY" envDefault:""`
+	SignedURLRequired    bool   `env:"SIGNED_URL_REQUIRED" envDefault:"false"`
+	SignedURLTTLSeconds  int    `env:"SIGNED_URL_TTL_SECONDS" envDefault:"3600"`
 }
 
 var Cfg Config

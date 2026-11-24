@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/service"
@@ -145,6 +146,13 @@ func DeleteDirectFileRecord(w http.ResponseWriter, r *http.Request, id string) {
 
 // FileContent 获取文件内容。
 func FileContent(w http.ResponseWriter, r *http.Request, id string) {
+	if service.SignedURLRequired() {
+		query := r.URL.Query()
+		if err := service.VerifyStorageObjectURL(id, query.Get("exp"), query.Get("sig")); err != nil {
+			FailWithStatus(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+	}
 	download, err := service.DownloadStorageObject(id, r.Header.Get("Range"))
 	if err != nil {
 		FailError(w, err)
@@ -166,6 +174,20 @@ func FileContent(w http.ResponseWriter, r *http.Request, id string) {
 		w.WriteHeader(download.StatusCode)
 	}
 	_, _ = io.Copy(w, download.Stream)
+}
+
+// SignedFileURL 返回带签名与过期时间的文件访问地址。
+func SignedFileURL(w http.ResponseWriter, r *http.Request, id string) {
+	ttl := service.DefaultSignedURLTTL()
+	if raw := strings.TrimSpace(r.URL.Query().Get("ttl")); raw != "" {
+		if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 && seconds <= 86400 {
+			ttl = time.Duration(seconds) * time.Second
+		}
+	}
+	OK(w, map[string]any{
+		"url":       service.SignStorageObjectURL(id, ttl),
+		"expiresIn": int(ttl.Seconds()),
+	})
 }
 
 // FileInfo 获取文件元数据。

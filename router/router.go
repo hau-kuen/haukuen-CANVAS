@@ -30,6 +30,9 @@ func New() *gin.Engine {
 	api.GET("/files/:id/content", func(c *gin.Context) {
 		handler.FileContent(c.Writer, c.Request, c.Param("id"))
 	})
+	api.GET("/files/:id/signed", func(c *gin.Context) {
+		handler.SignedFileURL(c.Writer, c.Request, c.Param("id"))
+	})
 	api.POST("/ai/direct-request", gin.WrapF(handler.PrepareDirectAIRequest))
 	api.POST("/ai/autodl/workflows", gin.WrapF(handler.AutoDLWorkflows))
 	anonymousFiles := api.Group("/anonymous/files", middleware.AnonymousStorage)

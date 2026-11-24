@@ -1,6 +1,6 @@
 {
     "name": "canvas-agent-launcher",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "private": true,
     "description": "Canvas Agent 桌面启动器",
     "author": "tigerowo",

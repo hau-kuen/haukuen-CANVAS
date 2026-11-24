@@ -21,16 +21,22 @@ function maskToken(token) {
 
 /**
  * @param {string} line  原始日志/文本
- * @param {string} knownToken 已知 Token，精确命中时替换成掩码
+ * @param {string} knownToken 已知 Token，精确命中时替换成 [REDACTED]
+ *
+ * 注意与 maskToken 的分工：
+ * - maskToken 给 UI 单字段展示用，保留首6尾4 便于用户辨认是哪把 token；
+ * - redactWith 给日志落盘/外发用，一律 [REDACTED]，不留任何首尾片段。
  */
 function redactWith(line, knownToken) {
     let out = String(line == null ? "" : line);
     const token = String(knownToken || "");
-    if (token) out = out.split(token).join(maskToken(token));
+    if (token) out = out.split(token).join("[REDACTED]");
 
     return out
         // 64 位 hex（canvas-agent 的 Token 形态）
-        .replace(/[a-f0-9]{64}/gi, (m) => m.slice(0, 6) + MASK_ELLIPSIS + m.slice(-4))
+        .replace(/[a-f0-9]{64}/gi, "[REDACTED]")
+        // 上游已经打过码的形态：147dde…15a6 / 147dde...15a6 —— 也不许留片段
+        .replace(/\b[a-f0-9]{4,8}(?:…|\.{3})[a-f0-9]{4}\b/gi, "[REDACTED]")
         // OpenAI / 各家 sk- 前缀
         .replace(/(sk-)[A-Za-z0-9_-]{8,}/g, "$1[REDACTED]")
         // Authorization: Bearer xxx

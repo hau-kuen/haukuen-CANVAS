@@ -45,7 +45,9 @@ ok("mask 结果不含原文", !maskToken("f".repeat(64)).includes("f".repeat(20)
 
 /* ---------- 打码 ---------- */
 const redactCases = [
-    ["64位hex", "token=" + TOKEN, "token=a1b2c3…d4e5", TOKEN],
+    ["64位hex", "token=" + TOKEN, "token=[REDACTED]", TOKEN],
+    ["上游已打码形态", "Connect token: a1b2c3…d4e5", "Connect token: [REDACTED]", "a1b2c3"],
+    ["上游三点打码形态", "token: 147dde...15a6", "[REDACTED]", "147dde"],
     ["sk- key", "key sk-proj-abcdefghijklmnop1234", "[REDACTED]", "abcdefghijklmnop"],
     ["Bearer", "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9abc", "Bearer [REDACTED]", "eyJhbGciOiJIUzI1NiJ9"],
     ["agentToken", "http://x/#agentToken=" + TOKEN, "agentToken=[REDACTED]", TOKEN],
@@ -71,7 +73,7 @@ ok(
     "createRedactor 掩码已知 token",
     (() => {
         const out = createRedactor(TOKEN)("raw " + TOKEN);
-        return !out.includes(TOKEN) && out.includes("a1b2c3…d4e5");
+        return !out.includes(TOKEN) && out.includes("[REDACTED]") && !out.includes("a1b2c3");
     })()
 );
 
@@ -104,6 +106,14 @@ const needed = [
     "!**/codex-agent.json", "!**/*.ldb", "!data/**",
 ];
 for (const pat of needed) ok("filter " + pat, filter.includes(pat), JSON.stringify(filter));
+
+/* ---------- 默认安装目录不能只认 D 盘 ---------- */
+// 硬编码 D:\AI\Canvas Agent 时，没有 D 盘的机器会拿到非法默认路径，
+// 一路「下一步」就装到不存在的盘 —— 表现为「装不上 / 装完不启动」。
+const nsh = read("build/installer.nsh");
+ok("安装目录有非 D 盘回落", nsh.includes("LOCALAPPDATA\\Programs\\Canvas Agent"), "缺回落路径");
+ok("安装目录先探测 D 盘存在", nsh.includes("IfFileExists") && nsh.includes("D:\\*.*"));
+ok("写注册表用变量而非硬编码盘符", !/InstallLocation\s+"D:/.test(nsh));
 
 /* ---------- 源码无硬编码凭证 ---------- */
 ok("redact.js 无 sk- 硬编码", !/sk-[A-Za-z0-9]{20,}/.test(redactSrc));

@@ -4,7 +4,6 @@ const api = window.agent;
 const $ = (id) => document.getElementById(id);
 
 let current = null;
-let tokenVisible = false;
 let logOpen = false;
 let ticks = 0;
 
@@ -34,16 +33,13 @@ function render(state) {
     $("endpoint").textContent = state.endpoint;
     $("endpointText").textContent = state.endpoint;
     $("pidText").textContent = state.pid ? `PID ${state.pid}` : "—";
-    $("tokenText").textContent = state.hasToken
-        ? tokenVisible
-            ? state.token
-            : state.tokenMasked || "已生成"
-        : "启动后生成";
+    // 明文 token / 完整链接只在主进程，界面永远只显示掩码，复制走 IPC
+    $("tokenText").textContent = state.hasToken ? state.tokenMasked || "已生成" : "启动后生成";
     $("tokenText").style.cursor = state.hasToken ? "pointer" : "default";
-    $("tokenText").title = state.hasToken ? "点击显示/隐藏" : "";
+    $("tokenText").title = state.hasToken ? "点击复制完整 Token" : "";
 
-    $("linkText").textContent = state.hasToken ? state.link : "首次启动后生成";
-    $("linkText").title = state.hasToken ? state.link : "";
+    $("linkText").textContent = state.hasToken ? state.linkMasked : "首次启动后生成";
+    $("linkText").title = state.hasToken ? "点击复制完整连接链接" : "";
 
     $("canvasUrl").value = state.canvasUrl || "";
     $("optAutoStart").checked = Boolean(state.autoStartService);
@@ -127,10 +123,10 @@ $("btnRestart").addEventListener("click", async () => {
     setTimeout(refresh, 1500);
 });
 
-$("tokenText").addEventListener("click", () => {
+$("tokenText").addEventListener("click", async () => {
     if (!current?.hasToken) return;
-    tokenVisible = !tokenVisible;
-    render(current);
+    const res = await api.copyToken();
+    toast(res.message || (res.ok ? "Token 已复制到剪贴板" : "复制失败"));
 });
 
 $("btnCopyEndpoint").addEventListener("click", async () => {

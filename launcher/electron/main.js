@@ -93,7 +93,7 @@ function saveSettings() {
 /* ---------- 日志 ---------- */
 
 function pushLog(line) {
-    const text = String(line).replace(/\r/g, "").trimEnd();
+    const text = redact(String(line)).replace(/\r/g, "").trimEnd();
     if (!text) return;
     const stamp = new Date().toLocaleTimeString("zh-CN", { hour12: false });
     for (const single of text.split("\n")) {
@@ -107,11 +107,24 @@ function send(channel, payload) {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
+/* ---------- 脱敏 ---------- */
+
+// 日志与状态里绝不出现完整 Token / API Key。UI 只拿掩码，明文只留在主进程。
+const { maskToken, redactWith } = require("./redact");
+
+let liveToken = "";
+function redact(line) {
+    return redactWith(line, liveToken);
+}
+
 /* ---------- 状态广播 ---------- */
 
 function publicState() {
     const cfg = readAgentConfig();
     const token = cfg?.token || "";
+    liveToken = token;
+    const masked = maskToken(token);
+    const base = (settings.canvasUrl || DEFAULT_CANVAS_URL).replace(/#.*$/, "");
     return {
         status: state.status,
         port: state.port,
@@ -120,9 +133,9 @@ function publicState() {
         startedAt: state.startedAt,
         endpoint: `http://127.0.0.1:${state.port}`,
         hasToken: Boolean(token),
-        token,
-        tokenMasked: token ? token.slice(0, 6) + "…" + token.slice(-4) : "",
-        link: token ? buildLink(token) : "",
+        // 明文 token / link 不出主进程：复制走 IPC
+        tokenMasked: masked,
+        linkMasked: token ? `${base}#agentUrl=http://127.0.0.1:${state.port}&agentToken=${masked}` : "",
         canvasUrl: settings.canvasUrl,
         autoStartService: settings.autoStartService,
         closeToTray: settings.closeToTray,

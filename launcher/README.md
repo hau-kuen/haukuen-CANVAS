@@ -76,6 +76,30 @@ dmg 依赖 macOS 的 `hdiutil`、`.app` bundle 结构和 `codesign`，Windows �
 
 如果哪天配置真的乱了，去 `backups/` 里挑最近的快照，把 `launcher.json` / `codex-agent.json` 复制回原位即可。
 
+## 脱敏
+
+启动器只做一件事：把服务托管起来，绝不把凭证摊开在界面或日志里。
+
+| 位置 | 处理 |
+| --- | --- |
+| 界面 Token 行 | 只显示掩码（前 6 位 + `…` + 后 4 位），不能展开明文 |
+| 界面连接链接 | 同样只显示掩码版，`agentToken=` 后面的值被替换 |
+| 复制 Token / 复制链接 | 走主进程 IPC 读盘写剪贴板，明文不进渲染进程 |
+| 服务日志 | 入队前统一过 `redact()`：64 位 hex → 掩码，`sk-*` / `Bearer *` / `agentToken=*` / `apiKey` / `password` → `[REDACTED]` |
+| 安装包内容 | `extraResources` 排除 `data/`、`.env*`、`*.pem`、`*.key`、`*.db`、`*.log`、`codex-agent.json`、调试截图 |
+
+关键实现：`electron/redact.js` 独立导出 `maskToken` / `redactWith` / `createRedactor`，可以不依赖 Electron 单测。
+
+**Token 明文只存在于两处**：`~/.infinite-canvas/codex-agent.json`（磁盘）和主进程内存。渲染进程、日志区、安装包里都拿不到完整值。
+
+### 验收
+
+```bash
+node --check electron/main.js && node --check electron/redact.js
+# 扫描安装产物，确认 0 命中
+python scripts/scan-dist-secrets.py launcher/dist/win-unpacked
+```
+
 ## 图标
 
 ```bash

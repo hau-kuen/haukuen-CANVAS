@@ -35,17 +35,17 @@ const preload = read("electron/preload.js");
 const redactSrc = read("electron/redact.js");
 const pkg = JSON.parse(read("package.json"));
 
-const TOKEN = "147dde" + "b".repeat(52) + "15a6";
+const TOKEN = "a1b2c3" + "b".repeat(52) + "d4e5";
 
 /* ---------- 掩码 ---------- */
 ok("mask 空值返回空", maskToken("") === "");
 ok("mask 短值不泄漏", !maskToken("abc123").includes("abc123"));
-ok("mask 长值保留首6尾4", maskToken(TOKEN) === "147dde…15a6");
+ok("mask 长值保留首6尾4", maskToken(TOKEN) === "a1b2c3…d4e5");
 ok("mask 结果不含原文", !maskToken("f".repeat(64)).includes("f".repeat(20)));
 
 /* ---------- 打码 ---------- */
 const redactCases = [
-    ["64位hex", "token=" + TOKEN, "token=147dde…15a6", TOKEN],
+    ["64位hex", "token=" + TOKEN, "token=a1b2c3…d4e5", TOKEN],
     ["sk- key", "key sk-proj-abcdefghijklmnop1234", "[REDACTED]", "abcdefghijklmnop"],
     ["Bearer", "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9abc", "Bearer [REDACTED]", "eyJhbGciOiJIUzI1NiJ9"],
     ["agentToken", "http://x/#agentToken=" + TOKEN, "agentToken=[REDACTED]", TOKEN],
@@ -71,7 +71,7 @@ ok(
     "createRedactor 掩码已知 token",
     (() => {
         const out = createRedactor(TOKEN)("raw " + TOKEN);
-        return !out.includes(TOKEN) && out.includes("147dde…15a6");
+        return !out.includes(TOKEN) && out.includes("a1b2c3…d4e5");
     })()
 );
 

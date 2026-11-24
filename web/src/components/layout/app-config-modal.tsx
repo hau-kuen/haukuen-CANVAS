@@ -5,6 +5,9 @@ import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 
 import { ChannelModelSelectorModal } from "@/components/channel-model-selector-modal";
+import { ChannelPresetPickerModal, QuickPasteSetupModal, presetToDraft } from "@/components/layout/channel-quick-setup";
+import { ConfigBackupPanel } from "@/components/layout/config-backup-panel";
+import type { ChannelPreset, QuickChannelDraft } from "@/lib/channel-quick-config";
 import type { WorkflowChannelSettings } from "@/components/workflow/workflow-channel-pane";
 import { GrokTtsVoiceSelect } from "@/components/grok-tts-voice-select";
 import { MiniMaxTtsVoiceSelect } from "@/components/minimax-tts-voice-select";
@@ -52,6 +55,11 @@ export function AppConfigModal() {
     const [loadingModels, setLoadingModels] = useState(false);
     const [savingConfig, setSavingConfig] = useState(false);
     const [modelSelectChannelId, setModelSelectChannelId] = useState("");
+    const [presetPickerOpen, setPresetPickerOpen] = useState(false);
+    const [pasteOpen, setPasteOpen] = useState(false);
+    const [backupOpen, setBackupOpen] = useState(false);
+    const [expandedChannelIds, setExpandedChannelIds] = useState<string[]>([]);
+    const [testingChannelId, setTestingChannelId] = useState("");
     const [parameterTranslation, setParameterTranslation] = useState<string>();
     const [workflowEntries, setWorkflowEntries] = useState<WorkflowEntry[]>([]);
     const accountConfigRef = useRef<{ ready: boolean; workflowChannels?: WorkflowChannelData[] }>({ ready: false });
@@ -298,8 +306,72 @@ export function AppConfigModal() {
         updateLocalChannels(normalizeLocalChannels(config).map((channel) => (channel.id === id ? { ...channel, ...patch } : channel)));
     };
 
-    const addLocalChannel = () => {
-        updateLocalChannels([...normalizeLocalChannels(config), { id: "local-" + Date.now(), protocol: "openai", name: "新渠道", baseUrl: modelChannelDefaultBaseUrls.openai, apiKey: "", models: [] }]);
+
+    const addChannelsFromDrafts = (drafts: QuickChannelDraft[]) => {
+        if (!drafts.length) return;
+        const base = normalizeLocalChannels(config);
+        const stamp = Date.now();
+        const created: LocalModelChannel[] = drafts.map((draft, index) => ({
+            id: `local-${stamp}-${index}`,
+            protocol: draft.protocol,
+            name: draft.name || "新渠道",
+            baseUrl: draft.baseUrl || modelChannelDefaultBaseUrls[draft.protocol] || "",
+            apiKey: draft.apiKey,
+            models: [],
+        }));
+        updateLocalChannels([...base, ...created]);
+        setExpandedChannelIds((prev) => Array.from(new Set([...prev, ...created.map((channel) => channel.id)])));
+        message.success(`已添加 ${created.length} 个渠道`);
+        void autoPullModels(created);
+    };
+
+    const autoPullModels = async (created: LocalModelChannel[]) => {
+        const targets = created.filter((channel) => channel.apiKey.trim() && !isWorkflowProtocol(channel.protocol));
+        if (!targets.length) return;
+        setTestingChannelId(targets[0].id);
+        const pulled = await Promise.all(targets.map(async (channel) => {
+            try {
+                const models = uniqueModels(await fetchImageModels(configForLocalChannel(config, channel)));
+                return { id: channel.id, models };
+            } catch {
+                return { id: channel.id, models: [] as string[] };
+            }
+        }));
+        setTestingChannelId("");
+        const byId = new Map(pulled.map((item) => [item.id, item.models]));
+        const latest = normalizeLocalChannels(useConfigStore.getState().config);
+        updateLocalChannels(latest.map((channel) => {
+            const models = byId.get(channel.id);
+            return models && models.length ? { ...channel, models } : channel;
+        }));
+        const okCount = pulled.filter((item) => item.models.length).length;
+        if (okCount) message.success(`${okCount} 个渠道已自动拉取模型`);
+        else message.warning("渠道已添加，但没拉到模型，点「测试」看具体报错");
+    };
+
+    const testChannel = async (channel: LocalModelChannel) => {
+        if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
+            message.warning("先填 Base URL 和 API Key");
+            return;
+        }
+        setTestingChannelId(channel.id);
+        try {
+            const models = uniqueModels(await fetchImageModels(configForLocalChannel(config, channel)));
+            if (models.length) {
+                patchLocalChannel(channel.id, { models });
+                message.success(`${channel.name || "渠道"} 连通，${models.length} 个模型`);
+            } else {
+                message.warning(`${channel.name || "渠道"} 有响应但没返回模型`);
+            }
+        } catch (error) {
+            message.error(`${channel.name || "渠道"} 连接失败：${error instanceof Error ? error.message : "未知错误"}`);
+        } finally {
+            setTestingChannelId("");
+        }
+    };
+
+    const toggleChannelExpanded = (id: string) => {
+        setExpandedChannelIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
     };
 
     const removeLocalChannel = (id: string) => {
@@ -469,46 +541,59 @@ export function AppConfigModal() {
                                         <div className="text-sm font-medium">本地模型渠道</div>
                                         <div className="mt-1 text-xs text-stone-500">可为生图、视频、文本、音频分别选择不同渠道的模型。</div>
                                     </div>
-                                    <Button size="small" onClick={addLocalChannel}>
-                                        新增渠道
-                                    </Button>
-                                </div>
-                                {normalizeLocalChannels(config).map((channel, index) => (
-                                    <div key={channel.id} className="space-y-2 rounded-md bg-stone-50 p-2 dark:bg-stone-900">
-                                        <div className="grid gap-2 md:grid-cols-[130px_150px_minmax(0,1fr)_minmax(0,1fr)_auto]">
-                                            <Input value={channel.name} placeholder="渠道名称" onChange={(event) => patchLocalChannel(channel.id, { name: event.target.value })} />
-                                            <Select
-                                                value={channel.protocol}
-                                                options={modelChannelProtocolOptions}
-                                                onChange={(protocol: LocalModelChannel["protocol"]) => patchLocalChannel(channel.id, { protocol, baseUrl: modelChannelDefaultBaseUrls[protocol] })}
-                                            />
-                                            {isWorkflowProtocol(channel.protocol) ? <div className="flex h-8 items-center justify-center rounded-md border border-dashed border-[var(--ant-color-border)] px-3 text-xs text-[var(--ant-color-text-secondary)] md:col-span-2">连接信息和工作流在「选择」里配置</div> : <><Input value={channel.baseUrl} placeholder="Base URL" onChange={(event) => patchLocalChannel(channel.id, { baseUrl: event.target.value })} /><Input.Password value={channel.apiKey} placeholder="API Key" onChange={(event) => patchLocalChannel(channel.id, { apiKey: event.target.value })} /></>}
-                                            <div className="relative flex flex-wrap gap-2 md:flex-nowrap">
-                                                <Button size="small" onClick={() => openLocalModelSelector(channel)}>
-                                                    选择
-                                                </Button>
-                                                <Button size="small" danger disabled={index === 0 && normalizeLocalChannels(config).length === 1} onClick={() => removeLocalChannel(channel.id)}>
-                                                    删除
-                                                </Button>
-                                                {channel.protocol === "tokendance" || modelChannelApiKeyUrls[channel.protocol] ? (
-                                                    <div className="w-full md:absolute md:left-0 md:top-8">
-                                                        <Button
-                                                            block
-                                                            type="primary"
-                                                            size="small"
-                                                            href={channel.protocol === "tokendance" ? undefined : modelChannelApiKeyUrls[channel.protocol]}
-                                                            target={channel.protocol === "tokendance" ? undefined : "_blank"}
-                                                            onClick={channel.protocol === "tokendance" ? () => void loginTokenDance(channel.id) : undefined}
-                                                        >
-                                                            {channel.protocol === "tokendance" ? "登录" : "获取 API Key"}
-                                                        </Button>
-                                                    </div>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                        <div className="text-xs text-stone-500">{isWorkflowProtocol(channel.protocol) ? `已保存 ${channel.workflowSummaries?.length || 0} 条工作流` : `已保存 ${channel.models.length} 个模型`}</div>
+                                    <div className="flex shrink-0 gap-2">
+                                        <Button size="small" onClick={() => setBackupOpen(true)}>备份/恢复</Button>
+                                        <Button size="small" onClick={() => setPasteOpen(true)}>粘贴配置</Button>
+                                        <Button size="small" type="primary" ghost onClick={() => setPresetPickerOpen(true)}>新增渠道</Button>
                                     </div>
-                                ))}
+                                </div>
+                                {normalizeLocalChannels(config).map((channel, index) => {
+                                    const expanded = expandedChannelIds.includes(channel.id);
+                                    const hasKey = Boolean(channel.apiKey.trim()) || isWorkflowProtocol(channel.protocol);
+                                    return (
+                                        <div key={channel.id} className="rounded-md border border-stone-200 bg-stone-50 dark:border-stone-800 dark:bg-stone-900">
+                                            <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
+                                                <span className="rounded bg-stone-200 px-1.5 py-0.5 text-[10px] uppercase text-stone-600 dark:bg-stone-800 dark:text-stone-400">{channel.protocol}</span>
+                                                <span className="max-w-[180px] truncate text-sm font-medium">{channel.name || "未命名渠道"}</span>
+                                                <span className="text-xs text-stone-500">{isWorkflowProtocol(channel.protocol) ? `已保存 ${channel.workflowSummaries?.length || 0} 条工作流` : `${channel.models.length} 个模型`}</span>
+                                                <span className={hasKey ? "text-xs text-emerald-600" : "text-xs text-amber-600"}>{hasKey ? (isWorkflowProtocol(channel.protocol) ? "已配置" : "Key 已填") : "缺 Key"}</span>
+                                                <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                                                    {isWorkflowProtocol(channel.protocol) ? null : <Button size="small" loading={testingChannelId === channel.id} onClick={() => void testChannel(channel)}>测试</Button>}
+                                                    <Button size="small" onClick={() => openLocalModelSelector(channel)}>选择</Button>
+                                                    <Button size="small" onClick={() => toggleChannelExpanded(channel.id)}>{expanded ? "收起" : "展开"}</Button>
+                                                    <Button size="small" danger disabled={index === 0 && normalizeLocalChannels(config).length === 1} onClick={() => removeLocalChannel(channel.id)}>删除</Button>
+                                                </div>
+                                            </div>
+                                            {expanded ? (
+                                                <div className="space-y-2 border-t border-stone-200 p-2 dark:border-stone-800">
+                                                    <div className="grid gap-2 md:grid-cols-[130px_150px_minmax(0,1fr)_minmax(0,1fr)]">
+                                                        <Input value={channel.name} placeholder="渠道名称" onChange={(event) => patchLocalChannel(channel.id, { name: event.target.value })} />
+                                                        <Select
+                                                            value={channel.protocol}
+                                                            options={modelChannelProtocolOptions}
+                                                            onChange={(protocol: LocalModelChannel["protocol"]) => patchLocalChannel(channel.id, { protocol, baseUrl: modelChannelDefaultBaseUrls[protocol] })}
+                                                        />
+                                                        {isWorkflowProtocol(channel.protocol) ? <div className="flex h-8 items-center justify-center rounded-md border border-dashed border-[var(--ant-color-border)] px-3 text-xs text-[var(--ant-color-text-secondary)] md:col-span-2">连接信息和工作流在「选择」里配置</div> : <><Input value={channel.baseUrl} placeholder="Base URL" onChange={(event) => patchLocalChannel(channel.id, { baseUrl: event.target.value })} /><Input.Password value={channel.apiKey} placeholder="API Key" onChange={(event) => patchLocalChannel(channel.id, { apiKey: event.target.value })} /></>}
+                                                    </div>
+                                                    {channel.protocol === "tokendance" || modelChannelApiKeyUrls[channel.protocol] ? (
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <Button
+                                                                size="small"
+                                                                type="primary"
+                                                                href={channel.protocol === "tokendance" ? undefined : modelChannelApiKeyUrls[channel.protocol]}
+                                                                target={channel.protocol === "tokendance" ? undefined : "_blank"}
+                                                                onClick={channel.protocol === "tokendance" ? () => void loginTokenDance(channel.id) : undefined}
+                                                            >
+                                                                {channel.protocol === "tokendance" ? "登录 TokenDance" : "去获取 API Key"}
+                                                            </Button>
+                                                            <span className="truncate text-xs text-stone-500">{channel.baseUrl || "地址待补"}</span>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    );
+                                })}
                             </div>
                             <div className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-stone-200 px-3 py-2 dark:border-stone-800">
                                 <div className="min-w-0">
@@ -701,6 +786,23 @@ export function AppConfigModal() {
                 </Form>
             </div>
             </Modal>
+            <ConfigBackupPanel open={backupOpen} onClose={() => setBackupOpen(false)} />
+            <ChannelPresetPickerModal
+                open={presetPickerOpen}
+                onCancel={() => setPresetPickerOpen(false)}
+                onPick={(preset: ChannelPreset) => {
+                    setPresetPickerOpen(false);
+                    addChannelsFromDrafts([presetToDraft(preset)]);
+                }}
+            />
+            <QuickPasteSetupModal
+                open={pasteOpen}
+                onCancel={() => setPasteOpen(false)}
+                onConfirm={(drafts: QuickChannelDraft[]) => {
+                    setPasteOpen(false);
+                    addChannelsFromDrafts(drafts);
+                }}
+            />
             {modelSelectChannel && isWorkflowProtocol(modelSelectChannel.protocol) ? (
                 <Modal title={`${modelSelectChannel.name || "工作流渠道"} · ${modelSelectChannel.protocol === "runninghub" ? "RunningHub" : "ComfyUI"} 工作流`} open width="75vw" centered onCancel={finishWorkflowChannel} footer={<Button type="primary" onClick={finishWorkflowChannel}>完成</Button>} styles={{ body: { maxHeight: "76vh", overflowY: "auto" } }}>
                     <WorkflowChannelPane key={`${user?.id || "guest"}:${modelSelectChannel.protocol}:${modelSelectChannel.id}`} channel={modelSelectChannel as WorkflowChannelSettings} workflows={workflowEntries} token={token || ""} onChannelChange={(patch) => patchLocalChannel(modelSelectChannel.id, patch)} onBridgeDeleted={(bridgeId) => {

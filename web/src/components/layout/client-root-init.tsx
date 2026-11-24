@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { App } from "antd";
 
 import { fetchUserConfig } from "@/services/api/user-config";
+import { saveConfigSnapshot } from "@/lib/config-backup";
 import { replaceWorkflowChannels } from "@/services/workflow-channel-storage";
 import { STORAGE_SYNC_FAILED_EVENT, defaultUserStorageProvider, defaultUserWebDAVStorageProvider, saveUserStorageProvider, saveUserWebDAVStorageProvider } from "@/services/image-storage";
 import { defaultConfig, useConfigStore, type AiConfig } from "@/stores/use-config-store";
@@ -41,6 +42,34 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     useEffect(() => {
         void loadPublicSettings();
     }, [loadPublicSettings]);
+
+    // 渠道/Key/选型一变就留一份本机快照，清缓存、换版本、换机器后可以在“备份/恢复”里退回来
+    useEffect(() => {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        let lastSignature = "";
+        const schedule = (config: AiConfig) => {
+            const signature = JSON.stringify([
+                config.localChannels,
+                config.imageChannelId,
+                config.videoChannelId,
+                config.textChannelId,
+                config.audioChannelId,
+                config.imageModel,
+                config.textModel,
+            ]);
+            if (signature === lastSignature) return;
+            lastSignature = signature;
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => saveConfigSnapshot(useConfigStore.getState().config), 1500);
+        };
+        const initial = useConfigStore.getState().config;
+        if (initial.localChannels?.length) saveConfigSnapshot(initial);
+        const unsubscribe = useConfigStore.subscribe((state) => schedule(state.config));
+        return () => {
+            unsubscribe();
+            if (timer) clearTimeout(timer);
+        };
+    }, []);
 
     useEffect(() => {
         if (!isLoginPage) void hydrateUser();

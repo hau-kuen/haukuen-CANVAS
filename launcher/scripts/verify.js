@@ -35,7 +35,7 @@ const preload = read("electron/preload.js");
 const redactSrc = read("electron/redact.js");
 const pkg = JSON.parse(read("package.json"));
 
-const TOKEN = "a1b2c3" + "b".repeat(52) + "d4e5";
+const TOKEN = "a1b2c3" + "b".repeat(54) + "d4e5"; // 6+54+4 = 64，与真实 token 长度一致
 
 /* ---------- 掩码 ---------- */
 ok("mask 空值返回空", maskToken("") === "");

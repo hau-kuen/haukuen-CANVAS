@@ -30,6 +30,25 @@ async function fetchFirstText(urls: string[]): Promise<string> {
     throw new Error("所有源都不可用");
 }
 
+/**
+ * 取最新版本号。
+ * 注意 jsDelivr 对 @main 有缓存（可达数小时），发版后可能读到旧值，
+ * 所以先用 GitHub Releases API（实时），失败再退回 CDN / raw。
+ */
+async function fetchLatestVersion(): Promise<string> {
+    const apiUrl = `https://api.github.com/repos/${repoSlug}/releases/latest`;
+    try {
+        const response = await fetch(apiUrl, { cache: "no-store", headers: { Accept: "application/vnd.github+json" } });
+        if (response.ok) {
+            const data = (await response.json()) as { tag_name?: unknown };
+            if (typeof data.tag_name === "string" && data.tag_name.trim()) return data.tag_name.trim();
+        }
+    } catch {
+        /* 退回静态源 */
+    }
+    return fetchFirstText(versionSources);
+}
+
 function readLocalReleases(): ReleaseInfo[] {
     try {
         return JSON.parse(process.env.NEXT_PUBLIC_APP_RELEASES || "[]");
@@ -62,7 +81,7 @@ export function useVersionCheck() {
 
     const checkLatestVersion = useCallback(async () => {
         try {
-            const version = await fetchFirstText(versionSources);
+            const version = await fetchLatestVersion();
             setLatestVersion(version || currentVersion);
             return true;
         } catch {
@@ -75,7 +94,7 @@ export function useVersionCheck() {
             setChecking(true);
             try {
                 const [version, changelog] = await Promise.all([
-                    fetchFirstText(versionSources),
+                    fetchLatestVersion(),
                     fetchFirstText(changelogSources),
                 ]);
                 setLatestVersion(version || currentVersion);

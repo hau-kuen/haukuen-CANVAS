@@ -48,6 +48,16 @@ import { useUserStore } from "@/stores/use-user-store";
 import { createCanvasAgentState, runCanvasAgent } from "../agent/canvas-agent-runtime";
 import { useCodexAgent } from "../agent/use-codex-agent";
 import type { CanvasAgentContext } from "../agent/canvas-agent-context";
+import {
+    buildCanvasAgentSkillCatalog,
+    canReadSystemSkillFile,
+    imageGenerationNeedsSoulSkill,
+    isSoul2CanvasActive,
+    loadedSkillToolMessage,
+    resolveCanvasAgentSkillLoad,
+    SOUL_SKILL_REQUIRED_MESSAGE,
+    type CanvasAgentSkillCatalogItem,
+} from "../agent/canvas-agent-skill-catalog";
 import type { CanvasAgentAction, CanvasAgentToolResult } from "../agent/canvas-agent-tools";
 import {
     MAX_CANVAS_AGENT_SKILLS,
@@ -167,6 +177,7 @@ export function CanvasAssistantPanel({
     const [initialSession] = useState(() => createSession(mode));
     const lastSessionIds = useRef<Partial<Record<"api" | "codex", string>>>({});
     const drafts = useRef<Partial<Record<"api" | "codex", { prompt: string; references: string[]; skills: CanvasAgentSkillSelection[] }>>>({});
+    const skillTurnRef = useRef<{ active: boolean; manual: boolean; catalog?: CanvasAgentSkillCatalogItem[]; skills: CanvasAgentSkillSelection[] }>({ active: false, manual: false, skills: [] });
     const safeSessions = sessions.length ? sessions : [initialSession];
     const visibleSessions = safeSessions.filter((session) => (session.provider || "api") === mode);
     const rememberedId = lastSessionIds.current[mode] || activeSessionId;
@@ -311,11 +322,29 @@ export function CanvasAssistantPanel({
 
     const executeCanvasTool = async (action: CanvasAgentAction, messageReferenceNodeIds: string[], activeSkills: CanvasAgentSkillSelection[], provider: "api" | "codex", signal: AbortSignal): Promise<CanvasAgentToolResult> => {
         signal.throwIfAborted();
+        if (action.name === "load_skill") {
+            const turn = skillTurnRef.current;
+            if (!turn.active) return { ok: false, code: "skill_not_active", message: "当前不能加载 Skill" };
+            const available = [...useAgentSkillStore.getState().systemSkills, ...useAgentSkillStore.getState().userSkills];
+            const resolved = resolveCanvasAgentSkillLoad(available, action.arguments, turn.manual);
+            if (!resolved.ok) return { ok: false, code: resolved.code, message: resolved.message };
+            const exists = turn.skills.some((skill) => skill.id === resolved.skill.id && skill.source === resolved.skill.source);
+            if (!exists && turn.skills.length >= MAX_CANVAS_AGENT_SKILLS) return { ok: false, code: "skill_limit", message: `最多加载 ${MAX_CANVAS_AGENT_SKILLS} 个 Skill` };
+            if (!exists) turn.skills.push({ id: resolved.skill.id, name: resolved.skill.name, source: resolved.skill.source });
+            return { ok: true, skillId: resolved.skill.id, source: resolved.skill.source, name: resolved.skill.name, hasFiles: resolved.skill.hasFiles, content: resolved.skill.content, message: loadedSkillToolMessage(resolved.skill.hasFiles === true) };
+        }
+        if ((action.name === "generate_image" || action.name === "edit_image") && skillTurnRef.current.active) {
+            const turn = skillTurnRef.current;
+            const canvas = getAgentContext(activeSession?.agentState || createCanvasAgentState());
+            if (imageGenerationNeedsSoulSkill({ catalog: turn.catalog, soulActive: isSoul2CanvasActive(canvas), loadedCount: turn.skills.length, manual: turn.manual })) {
+                return { ok: false, code: "skill_required", message: SOUL_SKILL_REQUIRED_MESSAGE };
+            }
+        }
         if (action.name === "read_skill_file") {
             const skillId = typeof action.arguments.skillId === "string" ? action.arguments.skillId : "";
             const filePath = typeof action.arguments.path === "string" ? action.arguments.path : "";
-            const activeSkill = activeSkills.find((skill) => skill.id === skillId && skill.source === "system");
-            if (!activeSkill) return { ok: false, code: "skill_not_active", message: "只能读取当前激活的系统 Skill 文件" };
+            const readableSkills = skillTurnRef.current.active ? skillTurnRef.current.skills : activeSkills;
+            if (!canReadSystemSkillFile(readableSkills, skillId)) return { ok: false, code: "skill_not_active", message: "只能读取当前激活的系统 Skill 文件" };
             try {
                 const file = await fetchSystemAgentSkillFile(skillId, filePath);
                 return { ok: true, skillId, path: file.path, content: file.content };
@@ -473,6 +502,17 @@ export function CanvasAssistantPanel({
             activeSkillContents = latestSkills.map((skill) => ({ id: skill!.id, source: skill!.source, name: skill!.name, content: skill!.content, hasFiles: skill!.hasFiles }));
         }
 
+        let skillCatalog: CanvasAgentSkillCatalogItem[] | undefined;
+        if (!activeSkills.length) {
+            try {
+                await useAgentSkillStore.getState().loadSkills();
+                const store = useAgentSkillStore.getState();
+                skillCatalog = buildCanvasAgentSkillCatalog([...store.systemSkills, ...store.userSkills]);
+            } catch (error) {
+                appMessage.warning(error instanceof Error ? error.message : "Skill 目录加载失败");
+            }
+        }
+
         if (!activeSession) commitSessions([session, ...sessionsRef.current], session.id);
         updateSession(session.id, (current) => ({
             ...current,
@@ -522,6 +562,7 @@ export function CanvasAssistantPanel({
         abortRef.current = controller;
         setIsRunning(true);
         try {
+            skillTurnRef.current = { active: true, manual: activeSkills.length > 0, catalog: skillCatalog, skills: activeSkills.map((skill) => ({ ...skill })) };
             const modelReferences = await Promise.all(
                 references.map(async (reference) => {
                     if (!reference.dataUrl) return reference;
@@ -545,6 +586,7 @@ export function CanvasAssistantPanel({
                 userText: text,
                 references: modelReferences,
                 activeSkillContents,
+                skillCatalog,
                 ...(enableVideoAnalysis ? { enableVideoAnalysis: true } : {}),
                 skillsSelected: userMessage.skillsSelected,
                 contextCheckpoint: session.contextCheckpoint,
@@ -627,6 +669,7 @@ export function CanvasAssistantPanel({
                 activity: undefined,
             });
         } finally {
+            skillTurnRef.current = { active: false, manual: false, skills: [] };
             stopWatchingVideoAccount?.();
             if (abortRef.current === controller) abortRef.current = null;
             setIsRunning(false);

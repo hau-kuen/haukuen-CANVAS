@@ -20,16 +20,25 @@ import type {
 import { serializeCanvasAgentContext, type CanvasAgentContext } from "./canvas-agent-context";
 import { buildCanvasAgentSkillPrompt } from "./canvas-agent-skills";
 import {
+    absorbLoadedCanvasAgentSkills,
+    buildSoulSkillGuidance,
+    formatCanvasAgentSkillBodies,
+    formatCanvasAgentSkillCatalog,
+    imageGenerationNeedsSoulSkill,
+    isSoul2CanvasActive,
+    SOUL_SKILL_REQUIRED_MESSAGE,
+    type CanvasAgentLoadedSkill,
+    type CanvasAgentSkillCatalogItem,
+} from "./canvas-agent-skill-catalog";
+import {
     compactCanvasAgentHistory,
     estimateCanvasAgentInputTokens,
     canvasAgentInputBudget,
     serializeCanvasAgentMessagesForCheckpoint,
 } from "./canvas-agent-memory";
 import {
-    CANVAS_AGENT_SKILL_FILE_TOOL,
-    CANVAS_AGENT_TOOLS,
-    CANVAS_AGENT_VIDEO_TOOL,
     canvasAgentActionLabel,
+    canvasAgentTurnTools,
     isCanvasAgentMediaAction,
     normalizeCanvasAgentAction,
     parseCanvasAgentJson,
@@ -52,7 +61,8 @@ export type RunCanvasAgentInput = {
     userText: string;
     references: CanvasAssistantReference[];
     skillsSelected?: boolean;
-    activeSkillContents?: Array<{ id: string; source: "system" | "user"; name: string; content: string; hasFiles?: boolean }>;
+    activeSkillContents?: CanvasAgentLoadedSkill[];
+    skillCatalog?: CanvasAgentSkillCatalogItem[];
     enableVideoAnalysis?: boolean;
     contextCheckpoint?: string;
     preferredJsonMode?: CanvasAgentJsonFallbackMode;
@@ -96,7 +106,9 @@ export async function runCanvasAgent(input: RunCanvasAgentInput): Promise<RunCan
     let hasExecutedActions = false;
     let protocolError: string | undefined;
     let expectedAction = false;
-    const selectedSkills = input.skillsSelected ? input.activeSkillContents?.map((skill) => skill.name).join("、") : "";
+    const manualSkills = Boolean(input.activeSkillContents?.length);
+    let loadedSkills = [...(input.activeSkillContents || [])];
+    const selectedSkills = input.skillsSelected ? loadedSkills.map((skill) => skill.name).join("、") : "";
     const requestText = input.userText + (selectedSkills
         ? "\n\n【本条消息引用的 Skill】\n" + selectedSkills
             + "\n用户已通过输入框选择并激活以上 Skill，正文已在系统指令中提供。本条没有具体需求时，只简短确认已加载；有具体需求时，直接按所选 Skill 执行该需求，不额外回复加载确认。无需让用户重新选择这些 Skill。"
@@ -104,10 +116,7 @@ export async function runCanvasAgent(input: RunCanvasAgentInput): Promise<RunCan
     let currentUserMessage: CanvasAgentProtocolMessage = { role: "user", content: buildUserContent(requestText, input.references, input.config.textModel || input.config.model) };
     let protocolMessages = [...input.protocolMessages, currentUserMessage];
     let contextCheckpoint = input.contextCheckpoint;
-    const activeSkillContents = input.activeSkillContents?.map((skill, index) => `【完整 Skill ${index + 1}：${skill.name}（${skill.source === "system" ? `系统 Skill ID：${skill.id}` : "用户 Skill"}）】\n${skill.content}`).join("\n\n");
-    const skillFileToolAvailable = Boolean(input.activeSkillContents?.some((skill) => skill.source === "system" && skill.hasFiles));
-    let agentTools = skillFileToolAvailable ? [...CANVAS_AGENT_TOOLS, CANVAS_AGENT_SKILL_FILE_TOOL] : CANVAS_AGENT_TOOLS;
-    if (input.enableVideoAnalysis) agentTools = [...agentTools, CANVAS_AGENT_VIDEO_TOOL];
+    const discoveryEnabled = !manualSkills && input.skillCatalog !== undefined;
 
     const emitCheckpoint = () => input.onCheckpoint?.({
         state,
@@ -153,7 +162,13 @@ export async function runCanvasAgent(input: RunCanvasAgentInput): Promise<RunCan
         input.onEvent?.({ status: "thinking", label: step ? "正在根据画布结果继续" : "" });
         const context = input.getContext(state);
         const canvasContext = serializeCanvasAgentContext(context);
-        const buildPrompt = () => buildCanvasAgentSkillPrompt(state.phase, input.userText, context, activeSkillContents, contextCheckpoint, skillFileToolAvailable, false)
+        const skillFiles = loadedSkills.some((skill) => skill.source === "system" && skill.hasFiles);
+        const skillBodies = loadedSkills.length ? formatCanvasAgentSkillBodies(loadedSkills) : undefined;
+        const discovery = discoveryEnabled && !loadedSkills.length
+            ? { catalog: formatCanvasAgentSkillCatalog(input.skillCatalog || []), guidance: buildSoulSkillGuidance(input.skillCatalog || [], isSoul2CanvasActive(context)) }
+            : undefined;
+        const agentTools = canvasAgentTurnTools({ discovery: discoveryEnabled, skillFiles, video: input.enableVideoAnalysis });
+        const buildPrompt = () => buildCanvasAgentSkillPrompt(state.phase, input.userText, context, skillBodies, contextCheckpoint, skillFiles, false, discovery, manualSkills ? "manual" : loadedSkills.length ? "loaded" : "manual")
             + (input.enableVideoAnalysis
                 ? "\n\n用户要求看懂视频画面时，对引用的真实节点调用 analyze_video。"
                     + "已有 Skill 可以传真实节点 ID。只把视频用于生成参考时使用原有生成工具。"
@@ -283,9 +298,28 @@ export async function runCanvasAgent(input: RunCanvasAgentInput): Promise<RunCan
 
         expectedAction = false;
         protocolError = undefined;
-        input.onEvent?.({ status: "running", label: actions.length === 1 ? canvasAgentActionLabel(actions[0]) : "正在执行 " + actions.length + " 个画布操作" });
+        const soulLocked = imageGenerationNeedsSoulSkill({
+            catalog: input.skillCatalog,
+            soulActive: isSoul2CanvasActive(context),
+            loadedCount: loadedSkills.length,
+            manual: manualSkills,
+        });
+        const blocked = soulLocked ? actions.filter((action) => action.name === "generate_image" || action.name === "edit_image") : [];
+        const runnable = blocked.length ? actions.filter((action) => !blocked.includes(action)) : actions;
+        input.onEvent?.({
+            status: "running",
+            label: !runnable.length ? "需要先加载 Soul Skill" : runnable.length === 1 && !blocked.length ? canvasAgentActionLabel(runnable[0], input.skillCatalog) : "正在执行 " + actions.length + " 个画布操作",
+        });
 
-        const results = await executeActions(actions, state, input.executeAction, input.signal, input.onEvent);
+        const executed = runnable.length
+            ? await executeActions(runnable, state, input.executeAction, input.signal, input.onEvent, input.skillCatalog)
+            : { items: [], state };
+        if (!manualSkills) loadedSkills = absorbLoadedCanvasAgentSkills(loadedSkills, executed.items);
+        const executedById = new Map(executed.items.map((item) => [item.action.id, item]));
+        const results = {
+            state: executed.state,
+            items: actions.map((action) => executedById.get(action.id) || { action, result: { ok: false, code: "skill_required", message: SOUL_SKILL_REQUIRED_MESSAGE } }),
+        };
         hasExecutedActions = true;
         state = results.state;
 
@@ -329,11 +363,12 @@ export async function executeActions(
     executeAction: (action: CanvasAgentAction) => Promise<CanvasAgentToolResult>,
     signal?: AbortSignal,
     onEvent?: (event: CanvasAgentRuntimeEvent) => void,
+    skillCatalog?: Array<{ id: string; source?: string; name: string }>,
 ) {
     let state = initialState;
     const executeOne = async (action: CanvasAgentAction) => {
         throwIfAborted(signal);
-        onEvent?.({ status: "running", label: canvasAgentActionLabel(action) });
+        onEvent?.({ status: "running", label: canvasAgentActionLabel(action, skillCatalog) });
         try {
             const result = await executeAction(action);
             if (action.name === "set_agent_state" && result.ok) state = applyAgentState(state, action.arguments);

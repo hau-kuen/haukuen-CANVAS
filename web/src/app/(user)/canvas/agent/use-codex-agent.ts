@@ -8,8 +8,9 @@ import { canvasAgentSystemPrompt } from "@/services/api/canvas-agent";
 import type { CanvasAgentState } from "../types";
 import { canvasAgentAllowsArrangement, executeActions, type RunCanvasAgentInput, type RunCanvasAgentResult } from "./canvas-agent-runtime";
 import { buildCanvasAgentSkillPrompt } from "./canvas-agent-skills";
+import { buildSoulSkillGuidance, formatCanvasAgentSkillCatalog, isSoul2CanvasActive } from "./canvas-agent-skill-catalog";
 import {
-    CANVAS_AGENT_TOOLS, CANVAS_AGENT_SKILL_FILE_TOOL, normalizeCanvasAgentAction,
+    CANVAS_AGENT_TOOLS, CANVAS_AGENT_SKILL_FILE_TOOL, CANVAS_AGENT_LOAD_SKILL_TOOL, normalizeCanvasAgentAction,
     type CanvasAgentAction, type CanvasAgentToolResult,
 } from "./canvas-agent-tools";
 
@@ -26,7 +27,7 @@ type ActiveRun = {
 };
 const CONNECTION_KEY = "canvas-codex-connection";
 const defaultConnection = { endpoint: "http://127.0.0.1:3210", token: "" };
-const agentTools = [...CANVAS_AGENT_TOOLS, CANVAS_AGENT_SKILL_FILE_TOOL].map(({ function: tool }) => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters }));
+const agentTools = [...CANVAS_AGENT_TOOLS, CANVAS_AGENT_SKILL_FILE_TOOL, CANVAS_AGENT_LOAD_SKILL_TOOL].map(({ function: tool }) => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters }));
 const stopped = () => new DOMException("Agent 已停止", "AbortError");
 
 export function useCodexAgent(options: {
@@ -225,7 +226,7 @@ export function useCodexAgent(options: {
                     if (pending && action.name === "arrange_nodes" && !canvasAgentAllowsArrangement(pending.input.userText)) {
                         result = { ok: false, code: "action_not_requested", message: "用户没有要求整理画布，未执行节点排列" };
                     } else if (pending) {
-                        const execution = await executeActions([action], pending.state, (action) => pending.input.executeAction(action, signal), signal, pending.input.onEvent);
+                        const execution = await executeActions([action], pending.state, (action) => pending.input.executeAction(action, signal), signal, pending.input.onEvent, pending.input.skillCatalog);
                         signal.throwIfAborted();
                         pending.state = execution.state;
                         pending.input.onCheckpoint?.({ state: pending.state, protocolMessages: [] });
@@ -300,7 +301,11 @@ export function useCodexAgent(options: {
             void (async () => {
                 const skills = input.activeSkillContents?.map((skill) => "【完整 Skill：" + skill.name + "，ID：" + skill.id + "】\n" + skill.content).join("\n\n");
                 const hasFiles = Boolean(input.activeSkillContents?.some((skill) => skill.source === "system" && skill.hasFiles));
-                const developerInstructions = canvasAgentSystemPrompt(input.config, buildCanvasAgentSkillPrompt(input.initialState.phase, input.userText, input.getContext(input.initialState), skills, input.contextCheckpoint, hasFiles));
+                const context = input.getContext(input.initialState);
+                const discovery = !skills && input.skillCatalog
+                    ? { catalog: formatCanvasAgentSkillCatalog(input.skillCatalog), guidance: buildSoulSkillGuidance(input.skillCatalog, isSoul2CanvasActive(context)) }
+                    : undefined;
+                const developerInstructions = canvasAgentSystemPrompt(input.config, buildCanvasAgentSkillPrompt(input.initialState.phase, input.userText, context, skills, input.contextCheckpoint, hasFiles, true, discovery));
                 const { thread } = await link.rpc<{ thread: { id: string } }>(threadId ? "thread/resume" : "thread/start", {
                     ...(threadId ? { threadId } : {}), developerInstructions, ...(input.model ? { model: input.model } : {}),
                 });

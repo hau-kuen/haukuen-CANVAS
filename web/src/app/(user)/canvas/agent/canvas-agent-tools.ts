@@ -12,6 +12,7 @@ export const CANVAS_AGENT_ACTION_NAMES = [
     "get_connected_nodes",
     "get_generation_config",
     "get_generation_task",
+    "load_skill",
     "read_skill_file",
     "set_agent_state",
     "create_primary_script_node",
@@ -89,7 +90,14 @@ function defineTool(name: CanvasAgentActionName, description: string, properties
     };
 }
 
-export const CANVAS_AGENT_SKILL_FILE_TOOL = defineTool("read_skill_file", "按相对路径读取当前激活系统 Skill 的附属 Markdown 或文本文件。仅当 SKILL.md 明确引用附属文件时使用。", { skillId: STRING, path: STRING }, ["skillId", "path"]);
+export const CANVAS_AGENT_LOAD_SKILL_TOOL = defineTool(
+    "load_skill",
+    "按目录中的 skillId 加载一条系统或用户 Skill 的完整正文。仅在用户没有手动选择 Skill 时使用。加载后本轮按该 Skill 的流程和提示词规则执行。一次只加载最匹配的一条。",
+    { skillId: STRING, source: { type: "string", enum: ["system", "user"], description: "目录中的 source，用于区分同名 Skill。" } },
+    ["skillId"],
+);
+
+export const CANVAS_AGENT_SKILL_FILE_TOOL = defineTool("read_skill_file", "按相对路径读取当前激活系统 Skill 的附属 Markdown 或文本文件。仅当 SKILL.md 明确引用附属文件时使用。手动选择或本轮 load_skill 加载的系统 Skill 都可以读。", { skillId: STRING, path: STRING }, ["skillId", "path"]);
 
 export const CANVAS_AGENT_VIDEO_TOOL = defineTool(
     "analyze_video",
@@ -235,6 +243,12 @@ export function normalizeCanvasAgentAction(name: unknown, args: unknown, id = na
         case "delete_node":
             normalized = { nodeId: requiredString(input.nodeId, "nodeId") };
             break;
+        case "load_skill": {
+            const source = optionalString(input.source);
+            if (source && source !== "system" && source !== "user") throw new Error("source 只能是 system 或 user");
+            normalized = { skillId: requiredString(input.skillId, "skillId"), ...(source ? { source } : {}) };
+            break;
+        }
         case "read_skill_file":
             normalized = { skillId: requiredString(input.skillId, "skillId"), path: requiredString(input.path, "path") };
             break;
@@ -419,10 +433,20 @@ export async function parseCanvasAgentJson(content: string, { allowRepair = fals
 
 function canvasAgentToolDefinition(name: string) {
     if (name === "analyze_video") return CANVAS_AGENT_VIDEO_TOOL;
+    if (name === "load_skill") return CANVAS_AGENT_LOAD_SKILL_TOOL;
     return name === "read_skill_file" ? CANVAS_AGENT_SKILL_FILE_TOOL : CANVAS_AGENT_TOOLS.find((tool) => tool.function.name === name)!;
 }
 
-export function canvasAgentActionLabel(action: CanvasAgentAction) {
+export function canvasAgentTurnTools(options: { discovery: boolean; skillFiles: boolean; video?: boolean }) {
+    return [
+        ...CANVAS_AGENT_TOOLS,
+        ...(options.discovery ? [CANVAS_AGENT_LOAD_SKILL_TOOL] : []),
+        ...(options.skillFiles ? [CANVAS_AGENT_SKILL_FILE_TOOL] : []),
+        ...(options.video ? [CANVAS_AGENT_VIDEO_TOOL] : []),
+    ];
+}
+
+export function canvasAgentActionLabel(action: CanvasAgentAction, catalog?: Array<{ id: string; source?: string; name: string }>) {
     const labels: Record<CanvasAgentActionName, string> = {
         get_canvas_summary: "正在读取画布",
         get_selected_nodes: "正在读取选中节点",
@@ -433,6 +457,7 @@ export function canvasAgentActionLabel(action: CanvasAgentAction) {
         get_connected_nodes: "正在读取关联节点",
         get_generation_config: "正在读取生成配置",
         get_generation_task: "正在读取任务状态",
+        load_skill: "正在加载 Skill",
         read_skill_file: "正在读取 Skill 文件",
         set_agent_state: "正在保存创作进度",
         create_primary_script_node: "正在创建主剧本节点",
@@ -451,7 +476,11 @@ export function canvasAgentActionLabel(action: CanvasAgentAction) {
         get_media_task_status: "正在读取媒体任务",
         analyze_video: "正在分析视频画面",
     };
-    return labels[action.name];
+    if (action.name !== "load_skill") return labels[action.name];
+    const skillId = typeof action.arguments.skillId === "string" ? action.arguments.skillId : "";
+    const source = action.arguments.source === "system" || action.arguments.source === "user" ? action.arguments.source : "";
+    const name = catalog?.find((skill) => skill.id === skillId && (!source || !skill.source || skill.source === source))?.name.trim();
+    return name ? `正在加载 Skill「${name}」` : labels.load_skill;
 }
 
 export function isCanvasAgentMediaAction(action: CanvasAgentAction) {

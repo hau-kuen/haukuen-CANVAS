@@ -116,6 +116,10 @@ ok("备份把 token 置为 [REDACTED]", /obj\.token\s*=\s*"\[REDACTED\]"/.test(b
 ok("备份解析失败走 redact", /body\s*=\s*redact\(raw\)/.test(backupFn));
 ok("备份说明原配置不被覆盖", /升级不覆盖/.test(backupFn));
 
+/* ---------- 版本可见 ---------- */
+ok("托盘 tooltip 带版本号", /setToolTip\(`Canvas Agent v\$\{app\.getVersion\(\)\}/.test(main));
+ok("托盘菜单首行显示版本", /label: `Canvas Agent v\$\{app\.getVersion\(\)\}`/.test(main));
+
 /* ---------- 版本号一致 ---------- */
 const lock = JSON.parse(read("package-lock.json"));
 ok(

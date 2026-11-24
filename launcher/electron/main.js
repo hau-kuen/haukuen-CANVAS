@@ -470,9 +470,10 @@ function updateTray() {
         stopping: "停止中",
         error: "异常",
     }[state.status];
-    tray.setToolTip(`Canvas Agent · ${label}`);
+    tray.setToolTip(`Canvas Agent v${app.getVersion()} · ${label}`);
     tray.setContextMenu(
         Menu.buildFromTemplate([
+            { label: `Canvas Agent v${app.getVersion()}`, enabled: false },
             { label: `状态：${label}`, enabled: false },
             { type: "separator" },
             { label: "打开面板", click: showWindow },

@@ -16,3 +16,6 @@ web/public/InfiniteCanvas-ComfyBridge*
 
 __pycache__/
 *.pyc
+
+# 构建产物（便携版/二进制）
+dist/

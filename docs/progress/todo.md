@@ -51,3 +51,32 @@ description: 当前项目后续值得处理的事项
 - 2026-11-23 合并 PR #2 `cursor/canvas-agent-skill-discovery-084d`（grokbot 做的画布 Agent 按需加载 Skill）：10 文件 +567/-30，零冲突。新增 `canvas-agent-skill-catalog.ts` + 测试（bun test 8 pass），改 `canvas-agent-runtime.ts`、`canvas-agent-skills.ts`、`canvas-agent-tools.ts`、`skills/core.ts`、`use-codex-agent.ts`、`canvas-assistant-panel.tsx`。与本地 API 配置改动无文件重叠。
 - 升级前备份放 `data/backups/20261123-2351-api-pre-upgrade/`（DB 快照 + .env + Chrome localStorage 原始 .ldb + 导出 JSON），说明见该目录 README.md。
 - 新增 `scripts/extract-chrome-localstorage.py`：解析 Chrome/Edge 的 Local Storage LevelDB（自带 snappy 解压），把 localStorage 导出成 JSON，用于升级前后核对 API 渠道是否还在。渠道真实存放位置是 `infinite-canvas:ai_config_store` → `state.config.localChannels`，不在后端库。
+
+## 桌面启动器（launcher/）
+
+把 `canvas-agent`（本地 3210 服务）封装成双击即装的桌面应用。
+
+- 技术选型：Electron 37 外壳，只做 GUI + 子进程托管，不重写 Agent 逻辑。
+- 服务端整包塞进 `resources/server/`（`extraResources` 直接指向 `../canvas-agent`），**不进 asar** —— `ELECTRON_RUN_AS_NODE` 模式下 Node 读不了 asar 路径，`spawn` 会失败。
+- 子进程用 `process.execPath` + `ELECTRON_RUN_AS_NODE=1` 启动 `server/index.mjs`，等价于用 Electron 自带的 Node 22 跑，不依赖用户装 Node。
+- UI：470×812 深色单页，托盘常驻，关窗不杀服务；显示状态/PID/运行时长、Endpoint、Token（点击展开）、可点开的连接链接。
+- `buildLink()` 生成 `http://127.0.0.1:3000/canvas/<id>#agentUrl=...&agentToken=...`，画布前端 `use-codex-agent.ts` 与 `canvas-client-page.tsx` 会读 hash 自动绑定。
+- 打包：`npm run dist:win` 出 NSIS exe（213MB，压缩后）；mac dmg 必须走 macOS，已配 `.github/workflows/build-desktop.yml`（macos-14 arm64 + macos-13 x64 + windows-latest）。
+- 安装目录默认 `D:\AI\Canvas Agent`（`build/installer.nsh` 改 `InstallLocation`），避开 C 盘；Chromium 缓存 `sessionData` 挪到 `D:\AI\CanvasAgent-data`。
+
+### 升级不丢配置（设计约束，改动前先读）
+
+| 内容 | 位置 | 升级行为 |
+| --- | --- | --- |
+| 服务端代码 | `<安装目录>/resources/server/` | 整块替换 |
+| Token / 端口 / origins | `~/.infinite-canvas/codex-agent.json` | 不动，不用重新配对 |
+| 画布地址、自启、关窗行为 | `%APPDATA%\canvas-agent-launcher\launcher.json` | 不动（`nsis.deleteAppDataOnUninstall: false`） |
+| 配置快照 | `%APPDATA%\canvas-agent-launcher\backups\<旧版本>_to_<新版本>_<时间戳>/` | 版本变化时自动新增，只增不删 |
+
+`ensureUpgradeBackup()` 在 `app.whenReady()` 里比对 `lastVersion`，不一致就把 `launcher.json` + `codex-agent.json` 复制到 backups。实测把 `lastVersion` 改成 0.1.4 再启动，生成 `0.1.4_to_0.1.5_2026-11-24T07-41-44/`，token 检查仍在。
+
+### Windows 打包坑
+
+- `nsis.compression` 不存在，`compression` 是 build 顶层字段。
+- `winCodeSign` 的 7z 里有 macOS 符号链接，普通用户权限解压会失败（`Cannot create symbolic link`）。绕法：用 `7za x ... -x'!darwin'` 手动解压到 `<cache>/winCodeSign/winCodeSign-2.6.0/`（Windows 构建不需要 darwin 目录）。
+- 从 git-bash 后台启动 exe 时窗口可能被最小化（iconic），这是非交互 shell 派生的现象，用户双击快捷方式正常，不是 bug。

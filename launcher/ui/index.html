@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <title>Canvas Agent</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <header class="titlebar">
+        <div class="brand">
+            <span class="mark"></span>
+            <span class="name">Canvas Agent</span>
+        </div>
+        <div class="status-pill" id="statusPill">
+            <span class="dot"></span><span id="statusText">未启动</span>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="hero-top">
+                <div>
+                    <p class="label">本地服务</p>
+                    <p class="endpoint" id="endpoint">http://127.0.0.1:3210</p>
+                </div>
+                <div class="meta">
+                    <span id="pidText">—</span>
+                    <span id="uptimeText">—</span>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn primary" id="btnToggle">启动服务</button>
+                <button class="btn ghost" id="btnRestart">重启</button>
+            </div>
+            <p class="error" id="errorText" hidden></p>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <p class="card-title">连接信息</p>
+                <button class="link-btn" id="btnRevealConfig">打开配置目录</button>
+            </div>
+            <div class="row">
+                <span class="row-label">Endpoint</span>
+                <code class="row-value" id="endpointText">—</code>
+                <button class="mini" id="btnCopyEndpoint">复制</button>
+            </div>
+            <div class="row">
+                <span class="row-label">Token</span>
+                <code class="row-value" id="tokenText">—</code>
+                <button class="mini" id="btnCopyToken">复制</button>
+            </div>
+            <div class="row">
+                <span class="row-label">连接链接</span>
+                <span class="row-value muted" id="linkText">首次启动后生成</span>
+                <button class="mini" id="btnCopyLink">复制</button>
+            </div>
+            <div class="hint">把连接链接在画布所在浏览器打开，即可自动绑定；也可以在画布 Agent 面板里手动填 Endpoint + Token。</div>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <p class="card-title">画布地址</p>
+            </div>
+            <div class="row input-row">
+                <input id="canvasUrl" type="text" spellcheck="false" placeholder="http://127.0.0.1:3000" />
+                <button class="btn small" id="btnSaveUrl">保存</button>
+            </div>
+            <div class="actions">
+                <button class="btn primary wide" id="btnOpenCanvas">打开画布并连接</button>
+            </div>
+            <div class="hint">建议填具体的画布页，例如 <code>http://127.0.0.1:3000/canvas/&lt;画布ID&gt;</code>，打开后会通过链接末尾参数自动绑定 Agent；只填站点根地址时，需要进到画布页再手动连接。</div>
+        </section>
+
+        <section class="card logs-card">
+            <div class="card-head">
+                <p class="card-title">日志</p>
+                <div class="head-actions">
+                    <button class="link-btn" id="btnClearLogs">清空</button>
+                    <button class="link-btn" id="btnToggleLogs">展开</button>
+                </div>
+            </div>
+            <pre class="logs" id="logs" hidden></pre>
+            <p class="logs-empty" id="logsEmpty">暂无日志</p>
+        </section>
+
+        <section class="card">
+            <div class="card-head"><p class="card-title">选项</p></div>
+            <label class="switch">
+                <input type="checkbox" id="optAutoStart" />
+                <span class="track"></span>
+                <span class="switch-text">打开应用时自动启动服务</span>
+            </label>
+            <label class="switch">
+                <input type="checkbox" id="optCloseToTray" />
+                <span class="track"></span>
+                <span class="switch-text">关闭窗口时保持后台运行</span>
+            </label>
+        </section>
+    </main>
+
+    <div class="toast" id="toast"></div>
+    <script src="app.js"></script>
+</body>
+</html>

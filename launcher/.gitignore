@@ -1,0 +1,7 @@
+node_modules/
+dist/
+_shot.py
+_shot.png
+_cap.py
+_win.png
+_diag.py

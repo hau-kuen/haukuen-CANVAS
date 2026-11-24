@@ -95,10 +95,11 @@ dmg 依赖 macOS 的 `hdiutil`、`.app` bundle 结构和 `codesign`，Windows �
 ### 验收
 
 ```bash
-node --check electron/main.js && node --check electron/redact.js
-# 扫描安装产物，确认 0 命中
-python scripts/scan-dist-secrets.py launcher/dist/win-unpacked
+npm run verify      # 脱敏断言 + 扫描器自检，54 项，退出码可挂 CI
 ```
+
+`verify` 分两段：`scripts/verify.js` 断言脱敏函数、状态字段、UI 引用、IPC 链路、打包过滤；
+`scripts/scan-selfcheck.py` 反过来验证扫描器**抓得到**人造泄漏（抓不到就等于没检查），再扫真实产物。
 
 ## 图标
 

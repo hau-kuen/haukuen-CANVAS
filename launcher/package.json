@@ -7,6 +7,7 @@
     "main": "electron/main.js",
     "scripts": {
         "start": "electron .",
+        "verify": "node scripts/verify.js && python scripts/scan-selfcheck.py",
         "dist:win": "electron-builder --win --x64",
         "dist:mac": "electron-builder --mac",
         "dist:mac-arm": "electron-builder --mac --arm64",

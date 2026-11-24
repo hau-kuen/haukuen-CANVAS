@@ -2394,6 +2394,88 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         }
     }, []);
 
+    // 右键「储存到素材」：按节点类型归类，内容直接复用存储层的 storageKey（本地/NAS 同一套）
+    const handleSaveNodeToAssets = useCallback(async () => {
+        const node = contextMenuNode;
+        if (!node) return;
+        const md = node.metadata || {};
+        const content = (md.content || "").trim();
+        if (!content && !md.storageKey) {
+            message.warning("这个节点还没有可保存的内容");
+            setContextMenu(null);
+            return;
+        }
+        const title = (md.prompt || "").trim().slice(0, 30) || `画布素材 ${new Date().toLocaleString("zh-CN")}`;
+        const currentStorageKey = md.storageKey || "";
+        if (currentStorageKey && useAssetStore.getState().assets.some((asset) => (asset.data as { storageKey?: string }).storageKey === currentStorageKey)) {
+            message.info("这个内容已经在素材里了");
+            setContextMenu(null);
+            return;
+        }
+        try {
+            if (node.type === CanvasNodeType.Image) {
+                const url = await resolveImageUrl(currentStorageKey, content);
+                const blob = await (await fetch(url)).blob();
+                let width = md.naturalWidth || 0;
+                let height = md.naturalHeight || 0;
+                if (!width || !height) {
+                    try {
+                        const bitmap = await createImageBitmap(blob);
+                        width = bitmap.width;
+                        height = bitmap.height;
+                        bitmap.close();
+                    } catch { /* 取不到尺寸就留 0 */ }
+                }
+                let storageKey = currentStorageKey;
+                if (!storageKey) {
+                    const uploaded = await uploadRemoteImageToServer(url, `asset-${nanoid()}.png`, projectId);
+                    storageKey = uploaded.storageKey;
+                }
+                addAsset({
+                    kind: "image",
+                    title,
+                    coverUrl: url,
+                    tags: ["画布"],
+                    category: "画布素材",
+                    source: "画布",
+                    data: { dataUrl: url, storageKey, width, height, bytes: blob.size || md.bytes || 0, mimeType: blob.type || md.mimeType || "image/png" },
+                    metadata: { source: "canvas", nodeId: node.id, projectId },
+                });
+            } else if (node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) {
+                const url = await resolveMediaUrl(currentStorageKey, content);
+                const isVideo = node.type === CanvasNodeType.Video;
+                addAsset({
+                    kind: isVideo ? "video" : "audio",
+                    title,
+                    coverUrl: "",
+                    tags: ["画布"],
+                    category: "画布素材",
+                    source: "画布",
+                    data: isVideo
+                        ? { url, storageKey: currentStorageKey, width: md.naturalWidth || 0, height: md.naturalHeight || 0, bytes: md.bytes || 0, mimeType: md.mimeType || "video/mp4" }
+                        : { url, storageKey: currentStorageKey, bytes: md.bytes || 0, mimeType: md.mimeType || "audio/mpeg", durationMs: md.durationMs },
+                    metadata: { source: "canvas", nodeId: node.id, projectId },
+                });
+            } else {
+                addAsset({
+                    kind: "text",
+                    title,
+                    coverUrl: "",
+                    tags: ["画布"],
+                    category: "画布素材",
+                    source: "画布",
+                    data: { content: content || md.composerContent || md.prompt || "" },
+                    metadata: { source: "canvas", nodeId: node.id, projectId },
+                });
+            }
+            message.success("已存入素材");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "保存到素材失败");
+        } finally {
+            setContextMenu(null);
+        }
+    }, [addAsset, contextMenuNode, message, projectId, setContextMenu]);
+
     const handleDirectorProjectChange = useCallback(
         (project: unknown) => {
             if (!openDirectorNodeId) return;
@@ -4942,6 +5024,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     <CanvasNodeContextMenu
                         menu={contextMenu}
                         canCaptureVideoFrame={contextMenuNode?.type === CanvasNodeType.Video && Boolean(contextMenuNode.metadata?.content)}
+                        canSaveToAssets={Boolean(contextMenuNode && ((contextMenuNode.metadata?.content || "").trim() || contextMenuNode.metadata?.storageKey))}
+                        onSaveToAssets={() => void handleSaveNodeToAssets()}
                         onClose={() => setContextMenu(null)}
                         onCaptureVideoFrame={(position) => {
                             if (contextMenu.type !== "node") return;

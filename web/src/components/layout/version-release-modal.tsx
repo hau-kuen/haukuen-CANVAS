@@ -69,7 +69,19 @@ export function VersionReleaseModal({ className, style }: VersionReleaseModalPro
                                 {checking ? "检查中..." : "检查更新"}
                             </button>
                         </div>
-                        <div className="mt-1 text-base font-semibold text-stone-950 dark:text-stone-100">{latestVersion}</div>
+                        <div className="mt-1 flex items-center justify-between gap-3">
+                            <span className="text-base font-semibold text-stone-950 dark:text-stone-100">{latestVersion}</span>
+                            {hasNewVersion ? (
+                                <a
+                                    className="shrink-0 rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white no-underline transition hover:bg-green-700"
+                                    href="https://github.com/hau-kuen/haukuen-CANVAS/releases/latest"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    前往下载
+                                </a>
+                            ) : null}
+                        </div>
                     </div>
                 </div>
                 <div className="max-h-[56vh] overflow-y-auto pr-2">

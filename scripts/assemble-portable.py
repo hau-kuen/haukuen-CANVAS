@@ -10,6 +10,7 @@ import subprocess
 import zipfile
 from pathlib import Path
 
+CRLF = "\r\n"
 ROOT = Path(r"D:\无限画布-tigerowo")
 WEB = ROOT / "web"
 NEXT = WEB / ".next"
@@ -66,33 +67,110 @@ def main():
         log("  修正了嵌套的 web/ 目录")
     log(f"[3/7] 静态资源与 public 就位")
 
-    # 4) 启动脚本（GBK + CRLF，Windows cmd 才不闪退）
+    # 防御性补丁：standalone 的 server.js 直接用 process.env.HOSTNAME/PORT，不 trim。
+    # 任何一个调用方把 "0.0.0.0 " 带进来，Next 的 getaddrinfo 就会 ENOTFOUND 并静默退出。
+    server_js = OUT / "web" / "server.js"
+    if server_js.exists():
+        code = server_js.read_text(encoding="utf-8")
+        patched = code.replace(
+            "const currentPort = parseInt(process.env.PORT, 10) || 3000",
+            "const currentPort = parseInt((process.env.PORT || '').trim(), 10) || 3000",
+        ).replace(
+            "const hostname = process.env.HOSTNAME || '0.0.0.0'",
+            "const hostname = (process.env.HOSTNAME || '').trim() || '0.0.0.0'",
+        )
+        if patched != code:
+            server_js.write_text(patched, encoding="utf-8")
+            log("      server.js 已打 PORT/HOSTNAME trim 补丁")
+        else:
+            log("      server.js 无需补丁（或已打过）")
+
+    # 4) 启动脚本（GBK + CRLF）
+    # 关键：必须用 cmd 的 set "VAR=value" 写法。写成 set VAR=value && ... 会把 && 前的空格写进值，
+    # HOSTNAME 变成 "0.0.0.0 " → Next 的 getaddrinfo 解析失败 → 前端静默崩溃（v0.8.5 就是这个坑）。
     bat = """@echo off
 chcp 936 >nul
 title Infinite Canvas %VERSION%
 cd /d "%~dp0"
+if not exist "data" mkdir "data"
 
-echo [1/3] 启动后端服务 (8080)...
-start "" /min "infinite-canvas.exe"
+set "SKIP_BROWSER="
+if /i "%~1"=="--no-browser" set "SKIP_BROWSER=1"
+rem 用绝对路径，避免 Git Bash 等工具的同名 timeout 抢先（GNU timeout 不认 /t 参数）
+set "SLEEP=%SystemRoot%\\System32\\timeout.exe"
+set "NS=%SystemRoot%\\System32\\netstat.exe"
+set "FS=%SystemRoot%\\System32\\findstr.exe"
 
-echo [2/3] 等待后端就绪...
-:waitapi
-timeout /t 1 /nobreak >nul
-curl -s -o nul http://127.0.0.1:8080/api/health
-if errorlevel 1 goto waitapi
-echo       后端已就绪
+echo [1/4] 后端服务 8080
+rem 后端必须用默认 8080，先清掉可能存在的 PORT，免得被前端端口污染
+set "PORT="
+set "HOSTNAME="
+%NS% -ano | %FS% /c:":8080 " | %FS% /i LISTENING >nul
+if errorlevel 1 (
+    start "" /min cmd /c "infinite-canvas.exe >> data\\backend.log 2>&1"
+    echo       正在启动...
+) else (
+    echo       已在运行，复用
+)
 
-echo [3/3] 启动前端并打开画布 (3000)...
-start "" /min cmd /c "set PORT=3000 && set HOSTNAME=0.0.0.0 && node web\\server.js"
-timeout /t 4 /nobreak >nul
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0open-canvas.ps1"
-
+set /a tries=0
+:wait_api
+%SLEEP% /t 1 /nobreak >nul
+%NS% -ano | %FS% /c:":8080 " | %FS% /i LISTENING >nul
+if not errorlevel 1 goto api_ready
+set /a tries+=1
+if %tries% lss 60 goto wait_api
 echo.
-echo 已启动：画布会在浏览器里自动打开
-echo 关闭窗口不会停止服务；要停止请运行 Stop-InfiniteCanvas.bat
-timeout /t 5 >nul
+echo  [错误] 后端 60 秒内没起来。请把本窗口截图反馈。
+echo  日志：data\\backend.log、data\\backend.err.log
+pause
+exit /b 1
+:api_ready
+echo       后端就绪
+
+rem 只给前端设置端口与监听地址
+set "PORT=3000"
+set "HOSTNAME=0.0.0.0"
+
+echo [2/4] 前端 3000
+%NS% -ano | %FS% /c:":3000 " | %FS% /i LISTENING >nul
+if errorlevel 1 (
+    start "" /min cmd /c "node web\\server.js >> data\\web.log 2>&1"
+    echo       正在启动...
+) else (
+    echo       已在运行，复用
+)
+
+set /a wtries=0
+:wait_web
+%SLEEP% /t 1 /nobreak >nul
+%NS% -ano | %FS% /c:":3000 " | %FS% /i LISTENING >nul
+if not errorlevel 1 goto web_ready
+set /a wtries+=1
+if %wtries% lss 90 goto wait_web
+echo.
+echo  [错误] 前端没能启动（3000 端口没有监听）
+echo  -------- data\\web.log --------
+type "data\\web.log" 2>nul
+echo  -----------------------------
+pause
+exit /b 1
+:web_ready
+echo       前端就绪
+
+echo [3/4] 打开画布
+if not defined SKIP_BROWSER powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0open-canvas.ps1"
+
+echo [4/4] 启动完成
+echo.
+echo   地址：http://127.0.0.1:3000
+echo   停止：双击 Stop-InfiniteCanvas.bat
+echo   日志：data\\web.log、data\\backend.log
+%SLEEP% /t 5 >nul
+exit /b 0
 """.replace("%VERSION%", VERSION)
-    (OUT / "Start-InfiniteCanvas.bat").write_bytes(bat.replace("\n", "\r\n").encode("gbk", errors="replace"))
+
+    (OUT / "Start-InfiniteCanvas.bat").write_bytes(bat.replace("\r\n", "\n").replace("\n", CRLF).encode("gbk", errors="replace"))
 
     # 打开画布的小脚本：取最近画布 + 带上 Agent 连接参数，使用者无需任何配置
     opener = """$ErrorActionPreference = "SilentlyContinue"
@@ -119,6 +197,17 @@ try {
     if ($projects.data -and @($projects.data).Count -gt 0) { $canvasId = [string](@($projects.data)[0].id) }
 } catch { }
 
+# 等前端真正响应再开浏览器，避免白屏
+$webReady = $false
+for ($i = 0; $i -lt 60; $i++) {
+    try {
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$webPort/" -UseBasicParsing -TimeoutSec 2
+        if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 500) { $webReady = $true; break }
+    } catch { }
+    Start-Sleep -Milliseconds 1000
+}
+if (-not $webReady) { Write-Output "前端还没就绪，仍尝试打开浏览器" }
+
 $hash = ""
 $agentUp = (Get-NetTCPConnection -LocalPort $agentPort -State Listen -ErrorAction SilentlyContinue) -ne $null
 if ($agentToken -and $agentUp) {
@@ -128,18 +217,19 @@ if ($canvasId) { $target = "http://127.0.0.1:$webPort/canvas/$canvasId$hash" }
 else { $target = "http://127.0.0.1:$webPort/canvas$hash" }
 Start-Process $target
 """
-    (OUT / "open-canvas.ps1").write_bytes(b"\xef\xbb\xbf" + opener.replace("\n", "\r\n").encode("utf-8"))
+    (OUT / "open-canvas.ps1").write_bytes(b"\xef\xbb\xbf" + opener.replace("\r\n", "\n").replace("\n", CRLF).encode("utf-8"))
     log("[4/7] 启动/停止/打开画布脚本已写入（bat GBK+CRLF，ps1 UTF-8 BOM）")
 
     stop = """@echo off
 chcp 936 >nul
-echo 停止无限画布服务...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000 " ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8080 " ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
-echo 已停止。
-timeout /t 2 >nul
+title 停止无限画布
+echo 正在停止无限画布服务...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ports = 3000,8080,3210; foreach ($p in $ports) { Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }"
+echo 已停止（3000 / 8080 / 3210）。
+"%SystemRoot%\\System32\\timeout.exe" /t 2 >nul
 """
-    (OUT / "Stop-InfiniteCanvas.bat").write_bytes(stop.replace("\n", "\r\n").encode("gbk", errors="replace"))
+
+    (OUT / "Stop-InfiniteCanvas.bat").write_bytes(stop.replace("\r\n", "\n").replace("\n", CRLF).encode("gbk", errors="replace"))
     # 5) 预置数据库：用 SQLite backup 生成一致性快照（不能直接拷 .db，WAL 还没合并）
     db_src = ROOT / "data" / "infinite-canvas.db"
     if db_src.exists():
@@ -251,7 +341,7 @@ try {
     Tip ("保存失败：" + $_.Exception.Message) "出错了"
 }
 '''
-    (OUT / "fill-apikey.ps1").write_bytes(b"\xef\xbb\xbf" + fill_ps1.replace("\n", "\r\n").encode("utf-8"))
+    (OUT / "fill-apikey.ps1").write_bytes(b"\xef\xbb\xbf" + fill_ps1.replace("\r\n", "\n").replace("\n", CRLF).encode("utf-8"))
     fill_bat = """@echo off
 chcp 936 >nul
 title 填写 API 密钥
@@ -259,7 +349,7 @@ cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0fill-apikey.ps1"
 exit
 """
-    (OUT / "Fill-ApiKey.bat").write_bytes(fill_bat.replace("\n", "\r\n").encode("gbk", errors="replace"))
+    (OUT / "Fill-ApiKey.bat").write_bytes(fill_bat.replace("\r\n", "\n").replace("\n", CRLF).encode("gbk", errors="replace"))
     log("[6/7] 填密钥工具已写入（Fill-ApiKey.bat + fill-apikey.ps1）")
 
     # 7) 说明
@@ -295,7 +385,7 @@ exit
 - Fill-ApiKey.bat     : 双击填 API 密钥（弹窗粘贴，不用进设置页）
 - data\\              : 数据库与日志（首次运行自动创建）
 """
-    (OUT / "README.txt").write_bytes(readme.replace("\n", "\r\n").encode("utf-8-sig"))
+    (OUT / "README.txt").write_bytes(readme.replace("\r\n", "\n").replace("\n", CRLF).encode("utf-8-sig"))
     log("[7/7] README 已写入")
 
     # zip

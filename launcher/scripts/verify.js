@@ -61,7 +61,7 @@ for (const [name, input, want, gone] of redactCases) {
 for (const line of [
     "server listening on http://127.0.0.1:3210",
     "PID 25980 uptime 12s",
-    "launcher v0.1.5 ready",
+    "launcher v0.1.6 ready",
     "[canvas-agent] 已绑定会话 clientId=abc-123",
 ]) {
     ok("no false positive: " + line.slice(0, 28), redactWith(line, TOKEN) === line, redactWith(line, TOKEN));
@@ -108,6 +108,21 @@ for (const pat of needed) ok("filter " + pat, filter.includes(pat), JSON.stringi
 /* ---------- 源码无硬编码凭证 ---------- */
 ok("redact.js 无 sk- 硬编码", !/sk-[A-Za-z0-9]{20,}/.test(redactSrc));
 ok("launcher 源码无 64hex 明文", !/\b[a-f0-9]{64}\b/i.test(main + app + preload));
+
+/* ---------- 升级备份也不留明文 ---------- */
+const backupFn = main.slice(main.indexOf("function ensureUpgradeBackup"), main.indexOf("function ensureUpgradeBackup") + 2000);
+ok("备份不再 copyFileSync 直拷凭据", !/copyFileSync\(src/.test(backupFn), "仍在使用 copyFileSync");
+ok("备份把 token 置为 [REDACTED]", /obj\.token\s*=\s*"\[REDACTED\]"/.test(backupFn));
+ok("备份解析失败走 redact", /body\s*=\s*redact\(raw\)/.test(backupFn));
+ok("备份说明原配置不被覆盖", /升级不覆盖/.test(backupFn));
+
+/* ---------- 版本号一致 ---------- */
+const lock = JSON.parse(read("package-lock.json"));
+ok(
+    "package.json 与 lock 版本一致 (" + pkg.version + ")",
+    pkg.version === lock.version && pkg.version === lock.packages[""].version,
+    "lock=" + lock.version + " root=" + lock.packages[""].version
+);
 
 console.log("\nRESULT: PASS " + pass + " / FAIL " + fail);
 process.exit(fail === 0 ? 0 : 1);

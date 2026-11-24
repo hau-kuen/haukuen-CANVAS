@@ -178,10 +178,23 @@ function ensureUpgradeBackup() {
             [agentConfigPath(), "codex-agent.json"],
         ]) {
             try {
-                if (src && fs.existsSync(src)) {
-                    fs.copyFileSync(src, path.join(dir, name));
-                    saved += 1;
+                if (!src || !fs.existsSync(src)) continue;
+                const raw = fs.readFileSync(src, "utf8");
+                let body = raw;
+                if (name === "codex-agent.json") {
+                    // 备份只为回滚，不承担保管凭证的职责：token 打码后再落盘。
+                    // 原配置在 ~/.infinite-canvas/codex-agent.json，安装升级不会覆盖它。
+                    try {
+                        const obj = JSON.parse(raw);
+                        if (obj.token) obj.token = "[REDACTED]";
+                        obj._note = "备份已脱敏：token 不落盘。原配置仍在 ~/.infinite-canvas/codex-agent.json，升级不覆盖。";
+                        body = JSON.stringify(obj, null, 2) + "\n";
+                    } catch {
+                        body = redact(raw);
+                    }
                 }
+                fs.writeFileSync(path.join(dir, name), body, "utf8");
+                saved += 1;
             } catch {
                 /* 单个文件失败不影响整体 */
             }
